@@ -244,3 +244,36 @@ class LifiDevice:
 
     def __exit__(self, exc_type, exc, tb):
         self.close()
+
+
+# --- Der bequeme Einstieg ----------------------------------------------------
+# ``from lifi_hardware import led, sensor`` reicht fuer den Anfang:
+# Die beiden Objekte verbinden sich beim ERSTEN Gebrauch von selbst und
+# teilen sich ein Geraet. Beim Programmende geht die LED automatisch
+# aus und die Verbindung wird getrennt. Wer mehr Kontrolle will (etwa
+# ein eigenes Protokoll oder zwei Geraete), nimmt LifiDevice.connect().
+
+_shared_device = None
+
+
+def _device():
+    global _shared_device
+    if _shared_device is None:
+        import atexit
+        _shared_device = LifiDevice.connect()
+        atexit.register(_shared_device.close)
+    return _shared_device
+
+
+class _LazyPart:
+    """Platzhalter, der sich beim ersten Zugriff ans echte Teil haengt."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getattr__(self, attr):
+        return getattr(getattr(_device(), self._name), attr)
+
+
+led = _LazyPart("led")
+sensor = _LazyPart("sensor")
