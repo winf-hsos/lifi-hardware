@@ -1,0 +1,4 @@
+lifi_log.jsonl
+__pycache__/
+*.egg-info/
+build/

@@ -1,0 +1,13 @@
+[project]
+name = "lifi-hardware"
+version = "0.1.0"
+description = "Lesbare Schnittstelle zu LED und Farbsensor des LiFi-Projekts (Tinkerforge)"
+requires-python = ">=3.10"
+dependencies = ["tinkerforge>=2.1"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
