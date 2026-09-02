@@ -37,7 +37,7 @@ from tinkerforge.ip_connection import IPConnection
 from tinkerforge.bricklet_color_v2 import BrickletColorV2
 from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -129,6 +129,9 @@ class Sensor:
         self._gain = 16
         self._integration_time = 154
         self._apply()
+        # Die weisse Beleuchtungs-LED des Sensors ist zum FARBEN VON
+        # OBJEKTEN gedacht und stoert unsere Strecke nur: aus damit.
+        self.set_light(False)
 
     def _apply(self):
         self.raw.set_configuration(_GAINS[self._gain],
@@ -161,6 +164,17 @@ class Sensor:
                              f"Erlaubt: {sorted(_GAINS)}")
         self._gain = factor
         self._apply()
+
+    def set_light(self, on):
+        """Schaltet die weisse Beleuchtungs-LED des Sensors.
+
+        Sie ist fuers Anleuchten von Objekten gedacht (der Sensor kann
+        auch Oberflaechenfarben messen) und beim Start immer aus. Fuer
+        die Lichtstrecke bleibt sie aus, sonst blendet der Empfaenger
+        sich und sein Gegenueber selbst.
+        """
+        self.raw.set_light(bool(on))
+        self._log.write("set_light", on=bool(on))
 
     def read(self):
         """Liest eine Messung und gibt sie als Reading(r, g, b, c) zurueck.
