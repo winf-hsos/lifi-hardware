@@ -30,6 +30,7 @@ Die rohe Tinkerforge-API bleibt zugaenglich (``lifi.led.raw`` und
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import NamedTuple
 
@@ -37,7 +38,9 @@ from tinkerforge.ip_connection import IPConnection
 from tinkerforge.bricklet_color_v2 import BrickletColorV2
 from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
-__version__ = "0.1.1"
+from ._telemetry import DEFAULT_SERVER, Telemetry
+
+__version__ = "0.2.0"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -76,19 +79,26 @@ class Reading(NamedTuple):
 
 
 class _Log:
-    """Das lokale Messprotokoll: eine JSON-Zeile je Ereignis."""
+    """Das lokale Messprotokoll: eine JSON-Zeile je Ereignis.
+
+    Ueber ``sink`` haengt optional der Upload-Begleiter dran (siehe
+    _telemetry.py): Er bekommt exakt dieselben Eintraege, die auch in
+    der Datei stehen. Lokal zuerst, Upload obendrauf.
+    """
 
     def __init__(self, path):
         self.path = path
+        self.sink = None
 
     def write(self, event, **fields):
-        if self.path is None:
-            return
         record = {"t": round(time.time(), 4), "event": event, **fields}
-        # Anhaengen statt offen halten: robust gegen Abstuerze, und
-        # mehrere Programme koennen nacheinander ins selbe Protokoll.
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
+        if self.path is not None:
+            # Anhaengen statt offen halten: robust gegen Abstuerze, und
+            # mehrere Programme koennen nacheinander ins selbe Protokoll.
+            with open(self.path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        if self.sink is not None:
+            self.sink(record)
 
 
 class Led:
@@ -196,19 +206,27 @@ class Sensor:
 class LifiDevice:
     """Euer LiFi-Geraet: eine LED und ein Sensor an einem Brick."""
 
-    def __init__(self, ipcon, led, sensor, log):
+    def __init__(self, ipcon, led, sensor, log, telemetry=None):
         self._ipcon = ipcon
         self.led = led
         self.sensor = sensor
         self._log = log
+        self._telemetry = telemetry
 
     @classmethod
-    def connect(cls, host="localhost", port=4223, log_file="lifi_log.jsonl"):
+    def connect(cls, host="localhost", port=4223, log_file="lifi_log.jsonl",
+                server=DEFAULT_SERVER):
         """Verbindet sich mit dem Brick Daemon und findet LED und Sensor.
 
         Es ist keine Konfiguration noetig: Die Bausteine melden sich
         beim Start mit ihrer eindeutigen Kennung (UID) und ihrem Typ.
         ``log_file=None`` schaltet das lokale Messprotokoll ab.
+
+        ``server`` ist der Kursserver, an den das Messprotokoll
+        zusaetzlich geht (wie und warum: siehe _telemetry.py).
+        Abschalten jederzeit mit ``server=None`` oder der
+        Umgebungsvariable ``LIFI_SERVER=off``; ohne Server laeuft
+        alles genauso, nur ohne Live-Ansicht.
         """
         log = _Log(log_file)
         ipcon = IPConnection()
@@ -238,11 +256,20 @@ class LifiDevice:
                 f"Nicht gefunden: {', '.join(missing)}. Steckt das Geraet am "
                 f"USB-Port, und laeuft der Brick Daemon auf {host}:{port}?")
 
+        # Der Upload-Begleiter haengt sich VOR dem ersten Ereignis ans
+        # Protokoll, damit auch die Startkonfiguration mit hochgeht.
+        server = os.environ.get("LIFI_SERVER", server)
+        telemetry = None
+        if server and str(server).lower() not in ("off", "none", "0"):
+            telemetry = Telemetry(server, found[_ID_RGB_LED],
+                                  found[_ID_COLOR])
+            log.sink = telemetry.record
+
         led = Led(BrickletRGBLEDV2(found[_ID_RGB_LED], ipcon), log)
         sensor = Sensor(BrickletColorV2(found[_ID_COLOR], ipcon), log)
         log.write("connect", led_uid=led.uid, sensor_uid=sensor.uid,
                   version=__version__)
-        return cls(ipcon, led, sensor, log)
+        return cls(ipcon, led, sensor, log, telemetry)
 
     def close(self):
         """Schaltet die LED aus und trennt die Verbindung sauber."""
@@ -250,6 +277,8 @@ class LifiDevice:
             self.led.off()
         finally:
             self._log.write("close")
+            if self._telemetry is not None:
+                self._telemetry.close()
             self._ipcon.disconnect()
 
     # ``with LifiDevice.connect() as lifi:`` raeumt automatisch auf

@@ -29,4 +29,6 @@ lifi.close()
 
 Die zwei Stellschrauben des Sensors (Integrationszeit und Verstärkung) sind mit Absicht sichtbar: Sie sind der zentrale Zielkonflikt des Projekts, und ihr sollt an ihnen drehen. Alles, was das Gerät tut, landet zusätzlich als Messprotokoll in `lifi_log.jsonl` im Arbeitsordner (`log_file=None` schaltet das ab).
 
+Zusätzlich geht das Messprotokoll an den Kursserver, damit ihr eure Strecke live im Browser seht und die Challenge-Tests laufen können. Hochgeladen wird exakt das, was in eurer lokalen Datei steht, nichts weiter; Messungen werden zu Paketen gebündelt. Abschalten könnt ihr das jederzeit und ohne Nachteil mit `LifiDevice.connect(server=None)` oder der Umgebungsvariable `LIFI_SERVER=off`. Ohne Netz oder Server funktioniert alles genauso, nur ohne Live-Ansicht. Einzelheiten stehen in `_telemetry.py`.
+
 Das Modul ist bewusst kurz und kommentiert: Ab Challenge 2 lohnt es sich, hineinzuschauen. Die rohe Tinkerforge-API bleibt über `lifi.led.raw` und `lifi.sensor.raw` erreichbar.
