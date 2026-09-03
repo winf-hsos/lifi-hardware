@@ -24,6 +24,8 @@ anfallen koennen; die seltenen Steuer-Ereignisse gehen einzeln.
 from __future__ import annotations
 
 import json
+import re
+import sys
 import threading
 import urllib.request
 from collections import deque
@@ -123,6 +125,10 @@ class Telemetry:
         close_run()
         return packed
 
+    def flush_now(self):
+        """Sofort senden, fuer den Absturzmoment (Fehler-Ereignis)."""
+        self._flush()
+
     # -- Ende ----------------------------------------------------------------
     def close(self):
         """Schickt den Rest und beendet den Thread, mit kurzem Timeout."""
@@ -130,3 +136,40 @@ class Telemetry:
         self._wake.set()
         self._thread.join(timeout=_TIMEOUT)
         self._flush()
+
+
+# --- Absturz-Ereignisse ------------------------------------------------------
+# Stuerzt ein Programm ab, wird der Fehler als Ereignis protokolliert:
+# der Ausnahme-Typ und die BEREINIGTE Meldung. Bereinigt heisst: alle
+# Dateipfade werden entfernt (sie koennen Benutzernamen enthalten), es
+# gehen keine Traceback- oder Quelltextzeilen mit, und die Laenge ist
+# gedeckelt. Strg+C (KeyboardInterrupt) und SystemExit zaehlen nicht
+# als Fehler. Entschieden am 03.09.2026; die Erhebung steht auf der
+# Ankuendigungsfolie des Kurses.
+
+_PATH_PATTERN = re.compile(
+    r"(?:[A-Za-z]:)?[\\/](?:[^\\/\s'\"]+[\\/])+[^\\/\s'\"]+")
+
+
+def sanitize_error(message):
+    """Entfernt Pfade aus einer Fehlermeldung und deckelt die Laenge."""
+    cleaned = _PATH_PATTERN.sub("<pfad>", str(message))
+    return cleaned[:200]
+
+
+def install_error_hook(log, telemetry):
+    """Haengt sich an sys.excepthook, ohne die normale Ausgabe zu aendern."""
+    previous = sys.excepthook
+
+    def hook(exc_type, exc, traceback):
+        if not issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            try:
+                log.write("error", type=exc_type.__name__,
+                          message=sanitize_error(exc))
+                if telemetry is not None:
+                    telemetry.flush_now()   # der Thread stirbt gleich mit
+            except Exception:
+                pass                        # niemals den Absturz verschlimmern
+        previous(exc_type, exc, traceback)
+
+    sys.excepthook = hook

@@ -38,9 +38,9 @@ from tinkerforge.ip_connection import IPConnection
 from tinkerforge.bricklet_color_v2 import BrickletColorV2
 from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
-from ._telemetry import DEFAULT_SERVER, Telemetry
+from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -264,6 +264,10 @@ class LifiDevice:
             telemetry = Telemetry(server, found[_ID_RGB_LED],
                                   found[_ID_COLOR])
             log.sink = telemetry.record
+
+        # Abstuerze landen als Fehlertyp plus bereinigter Meldung im
+        # Protokoll (Details und Grenzen: _telemetry.py, unten)
+        install_error_hook(log, telemetry)
 
         led = Led(BrickletRGBLEDV2(found[_ID_RGB_LED], ipcon), log)
         sensor = Sensor(BrickletColorV2(found[_ID_COLOR], ipcon), log)
