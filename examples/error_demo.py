@@ -11,7 +11,7 @@ Die Faelle:
     name    NameError       (Tippfehler im Variablennamen)
     type    TypeError       (Zahl plus Text)
     file    FileNotFoundError (Meldung enthaelt einen Pfad; im Upload
-                               muss daraus <pfad> geworden sein)
+                               muss daraus <path> geworden sein)
     value   ValueError      (Bibliotheksfehler: unerlaubte Integrationszeit)
 """
 

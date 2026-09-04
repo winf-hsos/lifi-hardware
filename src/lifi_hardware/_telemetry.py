@@ -155,7 +155,7 @@ _PATH_PATTERN = re.compile(
 
 def sanitize_error(message):
     """Entfernt Pfade aus einer Fehlermeldung und deckelt die Laenge."""
-    cleaned = _PATH_PATTERN.sub("<pfad>", str(message))
+    cleaned = _PATH_PATTERN.sub("<path>", str(message))
     return cleaned[:200]
 
 

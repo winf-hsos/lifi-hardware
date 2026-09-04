@@ -40,7 +40,7 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -162,16 +162,17 @@ class Sensor:
     def set_integration_time(self, ms):
         """Setzt die Integrationszeit. Erlaubt: 2.4, 24, 101, 154, 700."""
         if ms not in _INTEGRATION_TIMES:
-            raise ValueError(f"Integrationszeit {ms} ms gibt es nicht. "
-                             f"Erlaubt: {sorted(_INTEGRATION_TIMES)}")
+            raise ValueError(
+                f"There is no integration time of {ms} ms. "
+                f"Allowed: {sorted(_INTEGRATION_TIMES)}")
         self._integration_time = ms
         self._apply()
 
     def set_gain(self, factor):
         """Setzt die Verstaerkung. Erlaubt: 1, 4, 16, 60."""
         if factor not in _GAINS:
-            raise ValueError(f"Verstaerkung {factor}x gibt es nicht. "
-                             f"Erlaubt: {sorted(_GAINS)}")
+            raise ValueError(f"There is no gain of {factor}x. "
+                             f"Allowed: {sorted(_GAINS)}")
         self._gain = factor
         self._apply()
 
@@ -253,8 +254,9 @@ class LifiDevice:
         if missing:
             ipcon.disconnect()
             raise RuntimeError(
-                f"Nicht gefunden: {', '.join(missing)}. Steckt das Geraet am "
-                f"USB-Port, und laeuft der Brick Daemon auf {host}:{port}?")
+                f"Not found: {', '.join(missing)}. Is the device plugged "
+                f"into USB, and is the Brick Daemon running on "
+                f"{host}:{port}?")
 
         # Der Upload-Begleiter haengt sich VOR dem ersten Ereignis ans
         # Protokoll, damit auch die Startkonfiguration mit hochgeht.
