@@ -40,7 +40,7 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -117,6 +117,15 @@ class Led:
     def off(self):
         """Schaltet die LED aus (dasselbe wie set_color(0, 0, 0))."""
         self.set_color(0, 0, 0)
+
+    @property
+    def color(self):
+        """Die aktuelle Farbe als (r, g, b), direkt von der Hardware gelesen.
+
+        Praktisch zum Nachsehen, was gerade wirklich gesendet wird,
+        etwa nach einem Programmabbruch oder in der Fehlersuche.
+        """
+        return tuple(self.raw.get_rgb_value())
 
 
 class Sensor:
