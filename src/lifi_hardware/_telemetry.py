@@ -147,8 +147,10 @@ class Telemetry:
 # als Fehler. Entschieden am 03.09.2026; die Erhebung steht auf der
 # Ankuendigungsfolie des Kurses.
 
+# [\\/]+ statt [\\/]: In Fehlermeldungen stehen Pfade oft per repr()
+# mit VERDOPPELTEN Backslashes (r"C:\\Users\\...").
 _PATH_PATTERN = re.compile(
-    r"(?:[A-Za-z]:)?[\\/](?:[^\\/\s'\"]+[\\/])+[^\\/\s'\"]+")
+    r"(?:[A-Za-z]:)?[\\/]+(?:[^\\/\s'\"]+[\\/]+)+[^\\/\s'\"]+")
 
 
 def sanitize_error(message):
