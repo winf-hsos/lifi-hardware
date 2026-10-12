@@ -44,7 +44,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from tinkerforge.ip_connection import IPConnection
 from tinkerforge.bricklet_color_v2 import BrickletColorV2
@@ -52,7 +52,7 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -121,17 +121,17 @@ class Led:
         self._log = log
         self.uid = raw.uid_string
 
-    def set_color(self, r, g, b):
+    def set_color(self, r: int, g: int, b: int) -> None:
         """Setzt die Farbe. Die LED bleibt an, bis etwas anderes kommt."""
         self.raw.set_rgb_value(r, g, b)
         self._log.write("set_color", r=r, g=g, b=b)
 
-    def off(self):
+    def off(self) -> None:
         """Schaltet die LED aus (dasselbe wie set_color(0, 0, 0))."""
         self.set_color(0, 0, 0)
 
     @property
-    def color(self):
+    def color(self) -> tuple[int, int, int]:
         """Die aktuelle Farbe als (r, g, b), direkt von der Hardware gelesen.
 
         Praktisch zum Nachsehen, was gerade wirklich gesendet wird,
@@ -180,7 +180,7 @@ class Sensor:
         """Aktueller Verstaerkungsfaktor."""
         return self._gain
 
-    def set_integration_time(self, ms):
+    def set_integration_time(self, ms: float) -> None:
         """Setzt die Integrationszeit. Erlaubt: 2.4, 24, 101, 154, 700."""
         if ms not in _INTEGRATION_TIMES:
             raise ValueError(
@@ -189,7 +189,7 @@ class Sensor:
         self._integration_time = ms
         self._apply()
 
-    def set_gain(self, factor):
+    def set_gain(self, factor: int) -> None:
         """Setzt die Verstaerkung. Erlaubt: 1, 4, 16, 60."""
         if factor not in _GAINS:
             raise ValueError(f"There is no gain of {factor}x. "
@@ -197,7 +197,7 @@ class Sensor:
         self._gain = factor
         self._apply()
 
-    def set_light(self, on):
+    def set_light(self, on: bool) -> None:
         """Schaltet die weisse Beleuchtungs-LED des Sensors.
 
         Sie ist fuers Anleuchten von Objekten gedacht (der Sensor kann
@@ -208,7 +208,7 @@ class Sensor:
         self.raw.set_light(bool(on))
         self._log.write("set_light", on=bool(on))
 
-    def read(self):
+    def read(self) -> Reading:
         """Liest eine Messung und gibt sie als Reading(r, g, b, c) zurueck.
 
         Wichtig: Der Sensor misst im eigenen Takt, eine Messung je
@@ -404,5 +404,8 @@ class _LazyPart:
         return getattr(getattr(_device(), self._name), attr)
 
 
-led = _LazyPart("led")
-sensor = _LazyPart("sensor")
+# Fuer den Editor sind led und sensor eine Led und ein Sensor: So zeigt er
+# beim Tippen von "led." die Methoden samt Beschreibung an. Zur Laufzeit
+# bleiben es Platzhalter, die sich erst beim ersten Gebrauch verbinden.
+led = cast(Led, _LazyPart("led"))
+sensor = cast(Sensor, _LazyPart("sensor"))
