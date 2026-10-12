@@ -25,6 +25,18 @@ auch ganz ohne Netz.
 
 Die rohe Tinkerforge-API bleibt zugaenglich (``lifi.led.raw`` und
 ``lifi.sensor.raw``), falls ihr tiefer wollt.
+
+Haengen zwei Geraete am selben Rechner (etwa vorn am Visualizer), sagt
+jedes Skript, welches es meint, ueber die UID seines Master Bricks
+(steht im Brick Viewer):
+
+    from lifi_hardware import led, sensor, use_device
+
+    use_device("64SK5w")
+    led.set_color(255, 0, 0)
+
+Dasselbe geht ohne Codeaenderung ueber die Umgebungsvariable
+``LIFI_MASTER=64SK5w``.
 """
 
 from __future__ import annotations
@@ -40,7 +52,7 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 
 # Geraetekennungen von Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -216,8 +228,9 @@ class Sensor:
 class LifiDevice:
     """Euer LiFi-Geraet: eine LED und ein Sensor an einem Brick."""
 
-    def __init__(self, ipcon, led, sensor, log, telemetry=None):
+    def __init__(self, ipcon, led, sensor, log, telemetry=None, master_uid=None):
         self._ipcon = ipcon
+        self.master_uid = master_uid
         self.led = led
         self.sensor = sensor
         self._log = log
@@ -225,11 +238,15 @@ class LifiDevice:
 
     @classmethod
     def connect(cls, host="localhost", port=4223, log_file="lifi_log.jsonl",
-                server=DEFAULT_SERVER):
+                server=DEFAULT_SERVER, master=None):
         """Verbindet sich mit dem Brick Daemon und findet LED und Sensor.
 
         Es ist keine Konfiguration noetig: Die Bausteine melden sich
         beim Start mit ihrer eindeutigen Kennung (UID) und ihrem Typ.
+        LED und Sensor kommen immer vom selben Master Brick. Haengen
+        mehrere Geraete am Rechner, waehlt ``master`` eines ueber die
+        UID seines Master Bricks; ohne Angabe gibt es dann einen Fehler
+        statt eines zufaellig gemischten Geraets.
         ``log_file=None`` schaltet das lokale Messprotokoll ab.
 
         ``server`` ist der Kursserver, an den das Messprotokoll
@@ -242,26 +259,64 @@ class LifiDevice:
         ipcon = IPConnection()
         ipcon.connect(host, port)
 
-        found = {}
+        # Je Master Brick die Bausteine, die an ihm haengen:
+        # {master_uid: {device_identifier: uid}}
+        bricks = {}
 
         def on_enumerate(uid, connected_uid, position, hw_version,
                          fw_version, device_identifier, enumeration_type):
-            found.setdefault(device_identifier, uid)
+            if enumeration_type == IPConnection.ENUMERATION_TYPE_DISCONNECTED:
+                return
+            if device_identifier in (_ID_RGB_LED, _ID_COLOR):
+                bricks.setdefault(connected_uid, {}).setdefault(device_identifier, uid)
+
+        def complete():
+            return sorted(m for m, parts in bricks.items()
+                          if _ID_RGB_LED in parts and _ID_COLOR in parts)
 
         ipcon.register_callback(IPConnection.CALLBACK_ENUMERATE, on_enumerate)
         ipcon.enumerate()
-        # Kurz warten, bis sich alle Bausteine gemeldet haben
+        # Kurz warten, bis sich alle Bausteine gemeldet haben. Ist ein
+        # Geraet vollstaendig, noch einen Moment auf weitere warten,
+        # damit ein zweites am selben Rechner nicht uebersehen wird.
         deadline = time.time() + 2.0
+        settle = None
         while time.time() < deadline:
-            if _ID_RGB_LED in found and _ID_COLOR in found:
+            done = complete()
+            if master is not None and master in done:
                 break
+            if master is None and done:
+                settle = settle or time.time() + 0.3
+                if time.time() > settle:
+                    break
             time.sleep(0.05)
+
+        devices = complete()
+        if master is not None:
+            chosen = master
+        elif len(devices) > 1:
+            ipcon.disconnect()
+            raise RuntimeError(
+                f"{len(devices)} devices found, with the master bricks "
+                f"{', '.join(devices)}. Choose one: use_device(\"{devices[0]}\") "
+                f"before the first use of led or sensor, or "
+                f"LifiDevice.connect(master=\"{devices[0]}\").")
+        elif devices:
+            chosen = devices[0]
+        else:
+            chosen = next(iter(bricks), None)
+        parts = bricks.get(chosen, {})
 
         missing = [name for ident, name in
                    [(_ID_RGB_LED, "RGB LED Bricklet 2.0"),
-                    (_ID_COLOR, "Color Bricklet 2.0")] if ident not in found]
+                    (_ID_COLOR, "Color Bricklet 2.0")] if ident not in parts]
         if missing:
             ipcon.disconnect()
+            if master is not None:
+                others = ", ".join(sorted(bricks)) or "none"
+                raise RuntimeError(
+                    f"Not found at master brick {master}: {', '.join(missing)}. "
+                    f"Master bricks with bricklets: {others}.")
             raise RuntimeError(
                 f"Not found: {', '.join(missing)}. Is the device plugged "
                 f"into USB, and is the Brick Daemon running on "
@@ -272,19 +327,19 @@ class LifiDevice:
         server = os.environ.get("LIFI_SERVER", server)
         telemetry = None
         if server and str(server).lower() not in ("off", "none", "0"):
-            telemetry = Telemetry(server, found[_ID_RGB_LED],
-                                  found[_ID_COLOR])
+            telemetry = Telemetry(server, parts[_ID_RGB_LED],
+                                  parts[_ID_COLOR])
             log.sink = telemetry.record
 
         # Abstuerze landen als Fehlertyp plus bereinigter Meldung im
         # Protokoll (Details und Grenzen: _telemetry.py, unten)
         install_error_hook(log, telemetry)
 
-        led = Led(BrickletRGBLEDV2(found[_ID_RGB_LED], ipcon), log)
-        sensor = Sensor(BrickletColorV2(found[_ID_COLOR], ipcon), log)
+        led = Led(BrickletRGBLEDV2(parts[_ID_RGB_LED], ipcon), log)
+        sensor = Sensor(BrickletColorV2(parts[_ID_COLOR], ipcon), log)
         log.write("connect", led_uid=led.uid, sensor_uid=sensor.uid,
-                  version=__version__)
-        return cls(ipcon, led, sensor, log, telemetry)
+                  master_uid=chosen, version=__version__)
+        return cls(ipcon, led, sensor, log, telemetry, master_uid=chosen)
 
     def close(self):
         """Schaltet die LED aus und trennt die Verbindung sauber."""
@@ -310,15 +365,31 @@ class LifiDevice:
 # teilen sich ein Geraet. Beim Programmende geht die LED automatisch
 # aus und die Verbindung wird getrennt. Wer mehr Kontrolle will (etwa
 # ein eigenes Protokoll oder zwei Geraete), nimmt LifiDevice.connect().
+# Welches Geraet, bestimmt use_device() oder die Umgebungsvariable
+# LIFI_MASTER; ohne beides das eine, das am Rechner haengt.
 
 _shared_device = None
+_selected_master = os.environ.get("LIFI_MASTER") or None
+
+
+def use_device(master_uid):
+    """Waehlt das Geraet fuer ``led`` und ``sensor`` ueber die UID seines
+    Master Bricks, etwa ``use_device("64SK5w")``. Vor dem ersten Gebrauch
+    von led oder sensor aufrufen."""
+    global _selected_master
+    if _shared_device is not None and _shared_device.master_uid != master_uid:
+        raise RuntimeError(
+            f"led and sensor are already connected to master brick "
+            f"{_shared_device.master_uid}. Call use_device() before the "
+            f"first use of led or sensor.")
+    _selected_master = master_uid
 
 
 def _device():
     global _shared_device
     if _shared_device is None:
         import atexit
-        _shared_device = LifiDevice.connect()
+        _shared_device = LifiDevice.connect(master=_selected_master)
         atexit.register(_shared_device.close)
     return _shared_device
 
