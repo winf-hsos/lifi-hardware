@@ -31,4 +31,17 @@ Die zwei Stellschrauben des Sensors (Integrationszeit und Verstärkung) sind mit
 
 Zusätzlich geht das Messprotokoll an den Kursserver, damit ihr eure Strecke live im Browser seht und die Challenge-Tests laufen können. Hochgeladen wird exakt das, was in eurer lokalen Datei steht, nichts weiter; Messungen werden zu Paketen gebündelt. Abschalten könnt ihr das jederzeit und ohne Nachteil mit `LifiDevice.connect(server=None)` oder der Umgebungsvariable `LIFI_SERVER=off`. Ohne Netz oder Server funktioniert alles genauso, nur ohne Live-Ansicht. Einzelheiten stehen in `_telemetry.py`.
 
+## Zwei Geräte an einem Rechner
+
+LED und Sensor kommen immer vom selben Master Brick. Hängen zwei Geräte am selben Rechner, etwa vorn am Visualizer, sagt jedes Skript, welches es meint, über die UID seines Master Bricks (steht im Brick Viewer); danach geht es mit `led` und `sensor` weiter wie gewohnt:
+
+```python
+from lifi_hardware import led, sensor, use_device
+
+use_device("64SK5w")          # vor dem ersten Gebrauch von led oder sensor
+led.set_color(255, 0, 0)
+```
+
+Ohne Änderung am Code geht dasselbe über die Umgebungsvariable `LIFI_MASTER=64SK5w`, mit `LifiDevice.connect(master="64SK5w")` ebenso. Wer bei zwei Geräten keines wählt, bekommt eine Fehlermeldung mit beiden UIDs statt eines Geräts aus der LED des einen und dem Sensor des anderen.
+
 Das Modul ist bewusst kurz und kommentiert: Ab Challenge 2 lohnt es sich, hineinzuschauen. Die rohe Tinkerforge-API bleibt über `lifi.led.raw` und `lifi.sensor.raw` erreichbar.
