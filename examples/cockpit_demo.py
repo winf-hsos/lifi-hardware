@@ -1,14 +1,14 @@
-"""Pilotprogramm fuers Team-Cockpit: Farben senden, dabei messen.
+"""Pilot program for the team cockpit: send colours and measure meanwhile.
 
-Startet man dieses Skript mit angeschlossenem Geraet, laesst sich im
-Cockpit live zuschauen (Team laut Registry, im Pilotbetrieb):
+Run this script with a device plugged in and you can watch it live in the
+cockpit (team as in the registry, during the pilot):
 
     https://lifi.uber.space/cockpit?team=pilot-01
 
-Das Programm laeuft etwa eine Minute: zwei Runden durch acht Farben,
-je drei Sekunden mit laufenden Messungen, und nach der ersten Runde
-ein Wechsel von Integrationszeit und Verstaerkung, damit auch die
-Konfigurationsmarke im Cockpit zu sehen ist.
+The program runs for about a minute: two rounds through eight colours,
+three seconds each with readings running, and after the first round a
+change of integration time and gain, so that the configuration mark shows
+up in the cockpit as well.
 
     python cockpit_demo.py
 """
@@ -23,7 +23,7 @@ COLORS = [
 ]
 
 with LifiDevice.connect() as lifi:
-    print(f"verbunden: LED {lifi.led.uid}, Sensor {lifi.sensor.uid}")
+    print(f"connected: LED {lifi.led.uid}, sensor {lifi.sensor.uid}")
     print("Cockpit: https://lifi.uber.space/cockpit?team=pilot-01")
     for round_number in range(2):
         for rgb in COLORS:
@@ -33,8 +33,8 @@ with LifiDevice.connect() as lifi:
                 lifi.sensor.read()
                 time.sleep(0.15)
         if round_number == 0:
-            # Sichtbar im Cockpit als gestrichelte Marke
+            # Shows up in the cockpit as a dashed mark
             lifi.sensor.set_integration_time(24)
             lifi.sensor.set_gain(4)
 
-print("fertig — im Cockpit auf '2 min' stellen, dann ist alles zu sehen")
+print("done: set the cockpit to '2 min' to see everything")

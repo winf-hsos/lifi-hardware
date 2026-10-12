@@ -1,18 +1,18 @@
-"""Testskript fuer die Absturz-Ereignisse (lifi_hardware 0.3.0).
+"""Test script for the crash events (since lifi_hardware 0.3.0).
 
-Loest nacheinander vier typische Fehler aus, jeden in einem eigenen
-Unterprozess (ein Programm kann ja nur einmal abstuerzen). Im Cockpit
-erscheinen sie als rote Marken, auf dem Server als error-Ereignisse:
+Triggers four typical errors one after the other, each in its own
+subprocess (a program can only crash once, after all). In the cockpit they
+appear as red marks, on the server as error events:
 
-    python error_demo.py            # alle vier Faelle nacheinander
-    python error_demo.py name       # nur einen Fall ausloesen
+    python error_demo.py            # all four cases one after the other
+    python error_demo.py name       # trigger only one case
 
-Die Faelle:
-    name    NameError       (Tippfehler im Variablennamen)
-    type    TypeError       (Zahl plus Text)
-    file    FileNotFoundError (Meldung enthaelt einen Pfad; im Upload
-                               muss daraus <path> geworden sein)
-    value   ValueError      (Bibliotheksfehler: unerlaubte Integrationszeit)
+The cases:
+    name    NameError         (typo in a variable name)
+    type    TypeError         (number plus text)
+    file    FileNotFoundError (the message contains a path; in the upload
+                               it must have become <path>)
+    value   ValueError        (library error: integration time not allowed)
 """
 
 import subprocess
@@ -23,13 +23,13 @@ CASES = ["name", "type", "file", "value"]
 
 if len(sys.argv) == 1:
     for case in CASES:
-        print(f"--- Fall: {case}")
+        print(f"--- case: {case}")
         subprocess.run([sys.executable, __file__, case])
         time.sleep(0.5)
     print()
-    print("Vier Fehler ausgeloest. Nachsehen:")
+    print("Four errors triggered. Have a look:")
     print("  Cockpit: https://lifi.uber.space/cockpit?team=pilot-01")
-    print("  (rote Marken auf der Zeitleiste, Kachel 'last error')")
+    print("  (red marks on the timeline, tile 'last error')")
     sys.exit(0)
 
 from lifi_hardware import LifiDevice
@@ -38,12 +38,12 @@ lifi = LifiDevice.connect(log_file=None)
 case = sys.argv[1]
 
 if case == "name":
-    sensr.read()                          # noqa: F821, mit Absicht falsch
+    sensr.read()                          # noqa: F821, wrong on purpose
 elif case == "type":
-    ergebnis = 1 + "1"
+    result = 1 + "1"
 elif case == "file":
-    open(r"C:\gibtsnicht\messwerte.txt")
+    open(r"C:\does-not-exist\readings.txt")
 elif case == "value":
-    lifi.sensor.set_integration_time(50)  # 50 ms gibt es nicht
+    lifi.sensor.set_integration_time(50)  # there is no 50 ms
 else:
-    print(f"Unbekannter Fall: {case}")
+    print(f"Unknown case: {case}")

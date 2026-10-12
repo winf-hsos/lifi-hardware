@@ -1,47 +1,54 @@
 # lifi-hardware
 
-Die lesbare Schnittstelle zu LED und Farbsensor des LiFi-Projekts an der Hochschule Osnabrück (Tinkerforge Master Brick, RGB LED Bricklet 2.0, Color Bricklet 2.0).
+The readable interface to the LED and the colour sensor of the LiFi project at Hochschule Osnabrück (Tinkerforge Master Brick, RGB LED Bricklet 2.0, Color Bricklet 2.0).
 
-## Installieren
+## Installing
 
 ```
 pip install git+https://github.com/winf-hsos/lifi-hardware.git
 ```
 
-Voraussetzungen: Der Brick Daemon läuft, und das Gerät steckt am USB-Port.
+Requirements: the Brick Daemon is running, and the device is plugged into a USB port.
 
-## Benutzen
+## Using it
+
+```python
+from lifi_hardware import led, sensor
+
+led.set_color(255, 0, 0)          # send red
+reading = sensor.read()           # Reading(r, g, b, c)
+print(reading)
+
+sensor.set_integration_time(24)   # 2.4, 24, 101, 154 or 700 ms
+sensor.set_gain(16)               # 1, 4, 16 or 60
+```
+
+`led` and `sensor` connect by themselves on their first use, and when the program ends the LED goes off and the connection is closed. If you want to decide yourself when to connect and disconnect, use the class behind them:
 
 ```python
 from lifi_hardware import LifiDevice
 
 lifi = LifiDevice.connect()
-
-lifi.led.set_color(255, 0, 0)     # Rot senden
-reading = lifi.sensor.read()      # Reading(r, g, b, c)
-print(reading)
-
-lifi.sensor.set_integration_time(24)   # 2.4, 24, 101, 154 oder 700 ms
-lifi.sensor.set_gain(16)               # 1, 4, 16 oder 60
-
+lifi.led.set_color(255, 0, 0)
+print(lifi.sensor.read())
 lifi.close()
 ```
 
-Die zwei Stellschrauben des Sensors (Integrationszeit und Verstärkung) sind mit Absicht sichtbar: Sie sind der zentrale Zielkonflikt des Projekts, und ihr sollt an ihnen drehen. Alles, was das Gerät tut, landet zusätzlich als Messprotokoll in `lifi_log.jsonl` im Arbeitsordner (`log_file=None` schaltet das ab).
+The two settings of the sensor (integration time and gain) are visible on purpose: they are the central trade-off of the project, and you are meant to turn them. Everything the device does also goes into a measurement log, `lifi_log.jsonl` in the working folder (`LifiDevice.connect(log_file=None)` switches it off).
 
-Zusätzlich geht das Messprotokoll an den Kursserver, damit ihr eure Strecke live im Browser seht und die Challenge-Tests laufen können. Hochgeladen wird exakt das, was in eurer lokalen Datei steht, nichts weiter; Messungen werden zu Paketen gebündelt. Abschalten könnt ihr das jederzeit und ohne Nachteil mit `LifiDevice.connect(server=None)` oder der Umgebungsvariable `LIFI_SERVER=off`. Ohne Netz oder Server funktioniert alles genauso, nur ohne Live-Ansicht. Einzelheiten stehen in `_telemetry.py`.
+The measurement log also goes to the course server, so that you can see your link live in the browser and the challenge tests can run. What is uploaded is exactly what is in your local file, nothing more; readings are bundled into packets. You can switch this off at any time and without any disadvantage with `LifiDevice.connect(server=None)` or the environment variable `LIFI_SERVER=off`. Without network or server everything works the same, only without the live view. The details are in `_telemetry.py`.
 
-## Zwei Geräte an einem Rechner
+## Two devices on one computer
 
-LED und Sensor kommen immer vom selben Master Brick. Hängen zwei Geräte am selben Rechner, etwa vorn am Visualizer, sagt jedes Skript, welches es meint, über die UID seines Master Bricks (steht im Brick Viewer); danach geht es mit `led` und `sensor` weiter wie gewohnt:
+The LED and the sensor always come from the same master brick. If two devices hang on the same computer, for example at the front under the visualizer, each script says which one it means by the UID of its master brick (shown in the Brick Viewer); after that, `led` and `sensor` work as usual:
 
 ```python
 from lifi_hardware import led, sensor, use_device
 
-use_device("64SK5w")          # vor dem ersten Gebrauch von led oder sensor
+use_device("64SK5w")          # before the first use of led or sensor
 led.set_color(255, 0, 0)
 ```
 
-Ohne Änderung am Code geht dasselbe über die Umgebungsvariable `LIFI_MASTER=64SK5w`, mit `LifiDevice.connect(master="64SK5w")` ebenso. Wer bei zwei Geräten keines wählt, bekommt eine Fehlermeldung mit beiden UIDs statt eines Geräts aus der LED des einen und dem Sensor des anderen.
+The same works without changing the code through the environment variable `LIFI_MASTER=64SK5w`, and with `LifiDevice.connect(master="64SK5w")`. If two devices are plugged in and a script does not choose, it gets an error message that names both UIDs instead of a device made of the LED of one and the sensor of the other.
 
-Das Modul ist bewusst kurz und kommentiert: Ab Challenge 2 lohnt es sich, hineinzuschauen. Die rohe Tinkerforge-API bleibt über `lifi.led.raw` und `lifi.sensor.raw` erreichbar.
+The module is deliberately short and commented: from Challenge 2 on it is worth looking inside. The raw Tinkerforge interface stays within reach through `led.raw` and `sensor.raw`.

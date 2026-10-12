@@ -1,42 +1,50 @@
-"""lifi_hardware: die Schnittstelle zu eurem LiFi-Geraet.
+"""lifi_hardware: the interface to your LiFi device.
 
-Ein Geraet traegt eine RGB-LED (der Sender) und einen Farbsensor (der
-Empfaenger), beide von Tinkerforge, verbunden ueber den Brick Daemon.
-Dieses Modul findet die Bausteine beim Start selbst und gibt euch zwei
-handliche Objekte: ``led`` und ``sensor``.
+A device carries an RGB LED (the sender) and a colour sensor (the
+receiver), both made by Tinkerforge and connected through the Brick
+Daemon. This module finds the parts by itself when your program starts
+and gives you two handy objects, ``led`` and ``sensor``:
+
+    from lifi_hardware import led, sensor
+
+    led.set_color(255, 0, 0)       # send red
+    reading = sensor.read()        # Reading(r, g, b, c)
+    led.off()
+
+If you want to decide yourself when to connect and disconnect, use the
+class behind them:
 
     from lifi_hardware import LifiDevice
 
     lifi = LifiDevice.connect()
-    lifi.led.set_color(255, 0, 0)      # Rot senden
-    reading = lifi.sensor.read()       # Reading(r, g, b, c)
-    lifi.led.off()
+    lifi.led.set_color(255, 0, 0)
+    reading = lifi.sensor.read()
     lifi.close()
 
-Zwei Stellschrauben des Sensors sind mit Absicht sichtbar, denn sie
-sind der zentrale Zielkonflikt des Projekts (Signalqualitaet gegen
-Symbolrate): ``set_integration_time()`` und ``set_gain()``. Sie sind
-nicht versteckt, nicht wegabstrahiert, und ihr sollt an ihnen drehen.
+Two settings of the sensor are visible on purpose, because they are the
+central trade-off of the project (signal quality against symbol rate):
+``set_integration_time()`` and ``set_gain()``. They are not hidden or
+abstracted away, and you are meant to turn them.
 
-Alles, was das Geraet tut, landet zusaetzlich in einem lokalen
-Messprotokoll (``lifi_log.jsonl`` im Arbeitsordner): eine Zeile JSON je
-Ereignis. Das ist euer Messreihen-Gedaechtnis und funktioniert immer,
-auch ganz ohne Netz.
+Everything the device does also goes into a local measurement log
+(``lifi_log.jsonl`` in your working folder), one line of JSON per event.
+It is the memory of your measurement series and always works, even
+without any network.
 
-Die rohe Tinkerforge-API bleibt zugaenglich (``lifi.led.raw`` und
-``lifi.sensor.raw``), falls ihr tiefer wollt.
+The raw Tinkerforge interface stays within reach (``led.raw`` and
+``sensor.raw``) in case you want to go deeper.
 
-Haengen zwei Geraete am selben Rechner (etwa vorn am Visualizer), sagt
-jedes Skript, welches es meint, ueber die UID seines Master Bricks
-(steht im Brick Viewer):
+If two devices hang on the same computer (for example at the front, under
+the visualizer), each script says which one it means by the UID of its
+master brick, which the Brick Viewer shows:
 
     from lifi_hardware import led, sensor, use_device
 
     use_device("64SK5w")
     led.set_color(255, 0, 0)
 
-Dasselbe geht ohne Codeaenderung ueber die Umgebungsvariable
-``LIFI_MASTER=64SK5w``.
+The same works without changing the code through the environment
+variable ``LIFI_MASTER=64SK5w``.
 """
 
 from __future__ import annotations
@@ -52,13 +60,13 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
-# Geraetekennungen von Tinkerforge (device_identifier)
+# Device identifiers used by Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
 _ID_COLOR = 2128                 # Color Bricklet 2.0
 
-# Der Sensor kennt nur diese Integrationszeiten (Millisekunden) ...
+# The sensor knows only these integration times (milliseconds) ...
 _INTEGRATION_TIMES = {
     2.4: BrickletColorV2.INTEGRATION_TIME_2MS,
     24: BrickletColorV2.INTEGRATION_TIME_24MS,
@@ -66,7 +74,7 @@ _INTEGRATION_TIMES = {
     154: BrickletColorV2.INTEGRATION_TIME_154MS,
     700: BrickletColorV2.INTEGRATION_TIME_700MS,
 }
-# ... und diese Verstaerkungsfaktoren.
+# ... and these gain factors.
 _GAINS = {
     1: BrickletColorV2.GAIN_1X,
     4: BrickletColorV2.GAIN_4X,
@@ -76,12 +84,13 @@ _GAINS = {
 
 
 class Reading(NamedTuple):
-    """Eine Sensormessung: Rot, Gruen, Blau und Clear (ungefiltert).
+    """One sensor reading: red, green, blue and clear (unfiltered).
 
-    Alle vier Werte sind 16-Bit-Zahlen (0 bis 65535). Der Clear-Kanal
-    misst ohne Farbfilter und ist deshalb der empfindlichste. Die Werte
-    entsprechen NICHT den gesendeten RGB-Werten; dazwischen liegen
-    ueberlappende Filter, Abstand und Umgebungslicht. Kalibrieren!
+    All four values are 16-bit numbers (0 to 65535). The clear channel
+    measures without a colour filter and is therefore the most sensitive
+    one. The values do NOT match the RGB values that were sent, because
+    overlapping filters, distance and room light lie in between, so you
+    have to calibrate.
     """
 
     r: int
@@ -91,11 +100,11 @@ class Reading(NamedTuple):
 
 
 class _Log:
-    """Das lokale Messprotokoll: eine JSON-Zeile je Ereignis.
+    """The local measurement log: one JSON line per event.
 
-    Ueber ``sink`` haengt optional der Upload-Begleiter dran (siehe
-    _telemetry.py): Er bekommt exakt dieselben Eintraege, die auch in
-    der Datei stehen. Lokal zuerst, Upload obendrauf.
+    The upload companion can hang on through ``sink`` (see _telemetry.py)
+    and receives exactly the same entries that are written to the file:
+    local first, upload on top.
     """
 
     def __init__(self, path):
@@ -105,8 +114,9 @@ class _Log:
     def write(self, event, **fields):
         record = {"t": round(time.time(), 4), "event": event, **fields}
         if self.path is not None:
-            # Anhaengen statt offen halten: robust gegen Abstuerze, und
-            # mehrere Programme koennen nacheinander ins selbe Protokoll.
+            # Append instead of keeping the file open: robust against
+            # crashes, and several programs can write to the same log
+            # one after the other.
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
         if self.sink is not None:
@@ -114,54 +124,58 @@ class _Log:
 
 
 class Led:
-    """Der Sender: eine RGB-LED mit drei Kanaelen von 0 bis 255."""
+    """The sender: an RGB LED with three channels from 0 to 255."""
 
     def __init__(self, raw, log):
-        self.raw = raw           # das rohe Tinkerforge-Objekt
+        self.raw = raw           # the raw Tinkerforge object
         self._log = log
         self.uid = raw.uid_string
 
     def set_color(self, r: int, g: int, b: int) -> None:
-        """Setzt die Farbe. Die LED bleibt an, bis etwas anderes kommt."""
+        """Sets the colour. The LED stays on until something else comes.
+
+        Each value goes from 0 (off) to 255 (full), for example
+        ``led.set_color(255, 0, 0)`` for red.
+        """
         self.raw.set_rgb_value(r, g, b)
         self._log.write("set_color", r=r, g=g, b=b)
 
     def off(self) -> None:
-        """Schaltet die LED aus (dasselbe wie set_color(0, 0, 0))."""
+        """Switches the LED off (the same as set_color(0, 0, 0))."""
         self.set_color(0, 0, 0)
 
     @property
     def color(self) -> tuple[int, int, int]:
-        """Die aktuelle Farbe als (r, g, b), direkt von der Hardware gelesen.
+        """The current colour as (r, g, b), read directly from the hardware.
 
-        Praktisch zum Nachsehen, was gerade wirklich gesendet wird,
-        etwa nach einem Programmabbruch oder in der Fehlersuche.
+        Handy for checking what is really being sent right now, for
+        example after a program was stopped or while looking for a fault.
         """
         return tuple(self.raw.get_rgb_value())
 
 
 class Sensor:
-    """Der Empfaenger: ein Farbsensor mit vier Kanaelen.
+    """The receiver: a colour sensor with four channels.
 
-    Die zwei Stellschrauben: Eine laengere Integrationszeit sammelt
-    mehr Licht je Messung (ruhigere Werte, aber weniger Messungen je
-    Sekunde), eine hoehere Verstaerkung macht schwaches Licht sichtbar
-    (aber auch das Rauschen). Beide gehoeren in euer Messprotokoll.
+    It has two settings. A longer integration time collects more light
+    per reading, which gives calmer values but fewer readings per second;
+    a higher gain makes weak light visible, and the noise as well. Both
+    belong in your measurement log.
     """
 
     def __init__(self, raw, log):
         self.raw = raw
         self._log = log
         self.uid = raw.uid_string
-        # Ein bekannter Startzustand, damit Messreihen vergleichbar
-        # sind. Gain 16x, weil 60x in normal beleuchteten Raeumen den
-        # Clear-Kanal schon ohne Signal saettigt (gemessen 03.09.2026).
-        # Was fuer EURE Strecke passt, sagt nur eure eigene Messreihe.
+        # A known starting state, so that measurement series can be
+        # compared. Gain 16x, because 60x saturates the clear channel in
+        # normally lit rooms even without a signal (measured 2026-09-03).
+        # What suits YOUR link, only your own measurement series can tell.
         self._gain = 16
         self._integration_time = 154
         self._apply()
-        # Die weisse Beleuchtungs-LED des Sensors ist zum FARBEN VON
-        # OBJEKTEN gedacht und stoert unsere Strecke nur: aus damit.
+        # The white lamp of the sensor is meant for measuring the colour
+        # of OBJECTS and only disturbs our link, so it is switched off.
         self.set_light(False)
 
     def _apply(self):
@@ -172,16 +186,16 @@ class Sensor:
 
     @property
     def integration_time(self):
-        """Aktuelle Integrationszeit in Millisekunden."""
+        """The current integration time in milliseconds."""
         return self._integration_time
 
     @property
     def gain(self):
-        """Aktueller Verstaerkungsfaktor."""
+        """The current gain factor."""
         return self._gain
 
     def set_integration_time(self, ms: float) -> None:
-        """Setzt die Integrationszeit. Erlaubt: 2.4, 24, 101, 154, 700."""
+        """Sets the integration time. Allowed: 2.4, 24, 101, 154, 700 ms."""
         if ms not in _INTEGRATION_TIMES:
             raise ValueError(
                 f"There is no integration time of {ms} ms. "
@@ -190,7 +204,7 @@ class Sensor:
         self._apply()
 
     def set_gain(self, factor: int) -> None:
-        """Setzt die Verstaerkung. Erlaubt: 1, 4, 16, 60."""
+        """Sets the gain. Allowed: 1, 4, 16, 60."""
         if factor not in _GAINS:
             raise ValueError(f"There is no gain of {factor}x. "
                              f"Allowed: {sorted(_GAINS)}")
@@ -198,26 +212,26 @@ class Sensor:
         self._apply()
 
     def set_light(self, on: bool) -> None:
-        """Schaltet die weisse Beleuchtungs-LED des Sensors.
+        """Switches the white lamp on the sensor board.
 
-        Sie ist fuers Anleuchten von Objekten gedacht (der Sensor kann
-        auch Oberflaechenfarben messen) und beim Start immer aus. Fuer
-        die Lichtstrecke bleibt sie aus, sonst blendet der Empfaenger
-        sich und sein Gegenueber selbst.
+        It is meant for lighting objects (the sensor can also measure the
+        colour of surfaces) and is always off at the start. Leave it off
+        for the light link, otherwise the receiver dazzles itself and the
+        device opposite.
         """
         self.raw.set_light(bool(on))
         self._log.write("set_light", on=bool(on))
 
     def read(self) -> Reading:
-        """Liest eine Messung und gibt sie als Reading(r, g, b, c) zurueck.
+        """Takes one reading and returns it as Reading(r, g, b, c).
 
-        Wichtig: Der Sensor misst im eigenen Takt, eine Messung je
-        Integrationszeit. Dieser Aufruf holt die JUENGSTE fertige
-        Messung ab und wartet nicht. Wer oefter liest, als der Sensor
-        misst, bekommt denselben Wert mehrfach; neue Information gibt
-        es hoechstens einmal je Integrationszeit. Genau deshalb ist die
-        Integrationszeit eine Stellschraube: ruhigere Werte gegen
-        weniger Messungen je Sekunde.
+        Important: the sensor measures at its own pace, one reading per
+        integration time. This call fetches the NEWEST finished reading
+        and does not wait. If you read more often than the sensor
+        measures, you get the same value several times; new information
+        comes at most once per integration time. That is exactly why the
+        integration time is a setting: calmer values against fewer
+        readings per second.
         """
         r, g, b, c = self.raw.get_color()
         reading = Reading(r, g, b, c)
@@ -226,7 +240,7 @@ class Sensor:
 
 
 class LifiDevice:
-    """Euer LiFi-Geraet: eine LED und ein Sensor an einem Brick."""
+    """Your LiFi device: an LED and a sensor on one master brick."""
 
     def __init__(self, ipcon, led, sensor, log, telemetry=None, master_uid=None):
         self._ipcon = ipcon
@@ -239,27 +253,27 @@ class LifiDevice:
     @classmethod
     def connect(cls, host="localhost", port=4223, log_file="lifi_log.jsonl",
                 server=DEFAULT_SERVER, master=None):
-        """Verbindet sich mit dem Brick Daemon und findet LED und Sensor.
+        """Connects to the Brick Daemon and finds the LED and the sensor.
 
-        Es ist keine Konfiguration noetig: Die Bausteine melden sich
-        beim Start mit ihrer eindeutigen Kennung (UID) und ihrem Typ.
-        LED und Sensor kommen immer vom selben Master Brick. Haengen
-        mehrere Geraete am Rechner, waehlt ``master`` eines ueber die
-        UID seines Master Bricks; ohne Angabe gibt es dann einen Fehler
-        statt eines zufaellig gemischten Geraets.
-        ``log_file=None`` schaltet das lokale Messprotokoll ab.
+        No configuration is needed: the parts report their unique
+        identifier (UID) and their type when the program starts. The LED
+        and the sensor always come from the same master brick. If several
+        devices hang on the computer, ``master`` chooses one by the UID of
+        its master brick; without it you get an error instead of a device
+        mixed together by chance. ``log_file=None`` switches the local
+        measurement log off.
 
-        ``server`` ist der Kursserver, an den das Messprotokoll
-        zusaetzlich geht (wie und warum: siehe _telemetry.py).
-        Abschalten jederzeit mit ``server=None`` oder der
-        Umgebungsvariable ``LIFI_SERVER=off``; ohne Server laeuft
-        alles genauso, nur ohne Live-Ansicht.
+        ``server`` is the course server that also receives the measurement
+        log (how and why: see _telemetry.py). Switch it off at any time
+        with ``server=None`` or the environment variable
+        ``LIFI_SERVER=off``; without the server everything works the same,
+        only without the live view.
         """
         log = _Log(log_file)
         ipcon = IPConnection()
         ipcon.connect(host, port)
 
-        # Je Master Brick die Bausteine, die an ihm haengen:
+        # For each master brick, the parts that hang on it:
         # {master_uid: {device_identifier: uid}}
         bricks = {}
 
@@ -276,9 +290,9 @@ class LifiDevice:
 
         ipcon.register_callback(IPConnection.CALLBACK_ENUMERATE, on_enumerate)
         ipcon.enumerate()
-        # Kurz warten, bis sich alle Bausteine gemeldet haben. Ist ein
-        # Geraet vollstaendig, noch einen Moment auf weitere warten,
-        # damit ein zweites am selben Rechner nicht uebersehen wird.
+        # Wait briefly until all parts have reported. Once one device is
+        # complete, wait a moment longer for others, so that a second
+        # device on the same computer is not missed.
         deadline = time.time() + 2.0
         settle = None
         while time.time() < deadline:
@@ -322,8 +336,8 @@ class LifiDevice:
                 f"into USB, and is the Brick Daemon running on "
                 f"{host}:{port}?")
 
-        # Der Upload-Begleiter haengt sich VOR dem ersten Ereignis ans
-        # Protokoll, damit auch die Startkonfiguration mit hochgeht.
+        # The upload companion hangs onto the log BEFORE the first event,
+        # so that the starting configuration is uploaded as well.
         server = os.environ.get("LIFI_SERVER", server)
         telemetry = None
         if server and str(server).lower() not in ("off", "none", "0"):
@@ -331,8 +345,8 @@ class LifiDevice:
                                   parts[_ID_COLOR])
             log.sink = telemetry.record
 
-        # Abstuerze landen als Fehlertyp plus bereinigter Meldung im
-        # Protokoll (Details und Grenzen: _telemetry.py, unten)
+        # Crashes end up in the log as the type of error plus a cleaned
+        # message (details and limits: _telemetry.py, at the bottom)
         install_error_hook(log, telemetry)
 
         led = Led(BrickletRGBLEDV2(parts[_ID_RGB_LED], ipcon), log)
@@ -342,7 +356,7 @@ class LifiDevice:
         return cls(ipcon, led, sensor, log, telemetry, master_uid=chosen)
 
     def close(self):
-        """Schaltet die LED aus und trennt die Verbindung sauber."""
+        """Switches the LED off and closes the connection cleanly."""
         try:
             self.led.off()
         finally:
@@ -351,7 +365,7 @@ class LifiDevice:
                 self._telemetry.close()
             self._ipcon.disconnect()
 
-    # ``with LifiDevice.connect() as lifi:`` raeumt automatisch auf
+    # ``with LifiDevice.connect() as lifi:`` cleans up by itself
     def __enter__(self):
         return self
 
@@ -359,23 +373,23 @@ class LifiDevice:
         self.close()
 
 
-# --- Der bequeme Einstieg ----------------------------------------------------
-# ``from lifi_hardware import led, sensor`` reicht fuer den Anfang:
-# Die beiden Objekte verbinden sich beim ERSTEN Gebrauch von selbst und
-# teilen sich ein Geraet. Beim Programmende geht die LED automatisch
-# aus und die Verbindung wird getrennt. Wer mehr Kontrolle will (etwa
-# ein eigenes Protokoll oder zwei Geraete), nimmt LifiDevice.connect().
-# Welches Geraet, bestimmt use_device() oder die Umgebungsvariable
-# LIFI_MASTER; ohne beides das eine, das am Rechner haengt.
+# --- The easy way in -----------------------------------------------------------
+# ``from lifi_hardware import led, sensor`` is enough to start with: the two
+# objects connect by themselves on their FIRST use and share one device.
+# When the program ends, the LED goes off and the connection is closed. If
+# you want more control (your own log, say, or two devices), use
+# LifiDevice.connect(). Which device they use is decided by use_device() or
+# the environment variable LIFI_MASTER; without either, it is the one device
+# plugged into the computer.
 
 _shared_device = None
 _selected_master = os.environ.get("LIFI_MASTER") or None
 
 
 def use_device(master_uid):
-    """Waehlt das Geraet fuer ``led`` und ``sensor`` ueber die UID seines
-    Master Bricks, etwa ``use_device("64SK5w")``. Vor dem ersten Gebrauch
-    von led oder sensor aufrufen."""
+    """Chooses the device for ``led`` and ``sensor`` by the UID of its
+    master brick, for example ``use_device("64SK5w")``. Call it before the
+    first use of led or sensor."""
     global _selected_master
     if _shared_device is not None and _shared_device.master_uid != master_uid:
         raise RuntimeError(
@@ -395,7 +409,7 @@ def _device():
 
 
 class _LazyPart:
-    """Platzhalter, der sich beim ersten Zugriff ans echte Teil haengt."""
+    """A placeholder that hooks itself to the real part on first access."""
 
     def __init__(self, name):
         self._name = name
@@ -404,8 +418,8 @@ class _LazyPart:
         return getattr(getattr(_device(), self._name), attr)
 
 
-# Fuer den Editor sind led und sensor eine Led und ein Sensor: So zeigt er
-# beim Tippen von "led." die Methoden samt Beschreibung an. Zur Laufzeit
-# bleiben es Platzhalter, die sich erst beim ersten Gebrauch verbinden.
+# For the editor, led and sensor are an Led and a Sensor, so typing "led."
+# shows their methods with their descriptions. At run time they stay
+# placeholders that connect only on their first use.
 led = cast(Led, _LazyPart("led"))
 sensor = cast(Sensor, _LazyPart("sensor"))

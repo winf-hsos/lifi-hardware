@@ -1,24 +1,24 @@
-"""Der Upload-Begleiter: schickt das Messprotokoll an den Kursserver.
+"""The upload companion: sends the measurement log to the course server.
 
-Was hier hochgeht, ist EXAKT das, was auch in eurer lokalen Datei
-``lifi_log.jsonl`` steht, keine Zeile mehr. Der Server ordnet die
-Ereignisse ueber die Geraete-UIDs eurem Team zu; damit seht ihr eure
-eigene Strecke live im Team-Cockpit, und die Challenge-Abnahmen laufen
-auf dem Beamer.
+What is uploaded here is EXACTLY what is also in your local file
+``lifi_log.jsonl``, not a line more. The server assigns the events to
+your team through the UIDs of the device; that is how you see your own
+link live in the team cockpit, and how the challenge acceptance tests
+run on the projector.
 
-Zwei harte Regeln:
+Two hard rules:
 
-1. Der Upload fasst das Timing nie an. Euer Programm wartet nicht auf
-   das Netz: Ereignisse wandern in eine Warteschlange, ein Hintergrund-
-   Thread schickt sie gebuendelt. Ist das Netz weg oder die Schlange
-   voll, wird verworfen statt gewartet; die lokale Datei hat alles.
-2. Ohne Server funktioniert alles. Abschalten geht jederzeit mit
-   ``LifiDevice.connect(server=None)`` oder der Umgebungsvariable
-   ``LIFI_SERVER=off``, und es entsteht euch kein Nachteil daraus.
+1. The upload never touches the timing. Your program does not wait for
+   the network: events go into a queue, and a background thread sends
+   them in bundles. If the network is gone or the queue is full, events
+   are dropped instead of waited for; the local file has everything.
+2. Everything works without the server. Switch it off at any time with
+   ``LifiDevice.connect(server=None)`` or the environment variable
+   ``LIFI_SERVER=off``; it costs you nothing.
 
-Sensor-Messungen (``read``) werden vor dem Senden zu Paketen
-zusammengefasst, weil in einer engen Messschleife tausende je Minute
-anfallen koennen; die seltenen Steuer-Ereignisse gehen einzeln.
+Sensor readings (``read``) are bundled into packets before sending,
+because a tight measuring loop can produce thousands of them per minute;
+the rare control events go one by one.
 """
 
 from __future__ import annotations
@@ -32,22 +32,22 @@ from collections import deque
 
 DEFAULT_SERVER = "https://lifi.uber.space"
 
-_FLUSH_SECONDS = 2.0             # spaetestens so oft wird gesendet
-_MAX_QUEUE = 5000                # aeltere Ereignisse fallen vorne raus
-_MAX_BATCH = 800                 # Ereignisse je HTTP-Anfrage
-_MAX_SAMPLES = 500               # Messungen je read-Paket
-_TIMEOUT = 3.0                   # Sekunden je HTTP-Anfrage
+_FLUSH_SECONDS = 2.0             # send at least this often
+_MAX_QUEUE = 5000                # older events drop out at the front
+_MAX_BATCH = 800                 # events per HTTP request
+_MAX_SAMPLES = 500               # readings per read packet
+_TIMEOUT = 3.0                   # seconds per HTTP request
 
 
 class Telemetry:
-    """Warteschlange plus Hintergrund-Thread fuer den Batch-Upload."""
+    """A queue plus a background thread for the batch upload."""
 
     def __init__(self, server, led_uid, sensor_uid):
         self.url = server.rstrip("/") + "/api/events"
         self.led_uid = led_uid
         self.sensor_uid = sensor_uid
-        # deque mit maxlen verwirft bei Ueberlauf automatisch die
-        # aeltesten Eintraege, ohne je zu blockieren (Regel 1)
+        # A deque with maxlen drops the oldest entries by itself when it
+        # overflows, without ever blocking (rule 1)
         self._queue = deque(maxlen=_MAX_QUEUE)
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -56,13 +56,13 @@ class Telemetry:
                                         name="lifi-telemetry")
         self._thread.start()
 
-    # -- Eingang (aus dem Messprotokoll, muss blitzschnell sein) -------------
+    # -- Input (from the measurement log, must be lightning fast) ------------
     def record(self, record):
         self._queue.append(record)
         if len(self._queue) >= _MAX_BATCH:
             self._wake.set()
 
-    # -- Hintergrund ---------------------------------------------------------
+    # -- Background ----------------------------------------------------------
     def _run(self):
         while not self._stop.is_set():
             self._wake.wait(_FLUSH_SECONDS)
@@ -87,16 +87,16 @@ class Telemetry:
             try:
                 urllib.request.urlopen(request, timeout=_TIMEOUT).close()
             except Exception:
-                # Verwerfen statt warten: die lokale Datei hat alles
+                # Drop instead of waiting: the local file has everything
                 pass
 
     @staticmethod
     def _pack(events):
-        """Fasst aufeinanderfolgende read-Ereignisse zu Paketen zusammen.
+        """Bundles consecutive read events into packets.
 
-        Aus vielen ``{"event": "read", r, g, b, c}`` wird ein
+        Many ``{"event": "read", r, g, b, c}`` become one
         ``{"event": "reads", "n": ..., "samples": [[t, r, g, b, c], ...]}``.
-        Alles andere bleibt unveraendert in seiner Reihenfolge.
+        Everything else stays unchanged and in its order.
         """
         packed = []
         run = []
@@ -126,41 +126,40 @@ class Telemetry:
         return packed
 
     def flush_now(self):
-        """Sofort senden, fuer den Absturzmoment (Fehler-Ereignis)."""
+        """Sends right away, for the moment of a crash (error event)."""
         self._flush()
 
-    # -- Ende ----------------------------------------------------------------
+    # -- End -----------------------------------------------------------------
     def close(self):
-        """Schickt den Rest und beendet den Thread, mit kurzem Timeout."""
+        """Sends the rest and ends the thread, with a short timeout."""
         self._stop.set()
         self._wake.set()
         self._thread.join(timeout=_TIMEOUT)
         self._flush()
 
 
-# --- Absturz-Ereignisse ------------------------------------------------------
-# Stuerzt ein Programm ab, wird der Fehler als Ereignis protokolliert:
-# der Ausnahme-Typ und die BEREINIGTE Meldung. Bereinigt heisst: alle
-# Dateipfade werden entfernt (sie koennen Benutzernamen enthalten), es
-# gehen keine Traceback- oder Quelltextzeilen mit, und die Laenge ist
-# gedeckelt. Strg+C (KeyboardInterrupt) und SystemExit zaehlen nicht
-# als Fehler. Entschieden am 03.09.2026; die Erhebung steht auf der
-# Ankuendigungsfolie des Kurses.
+# --- Crash events -------------------------------------------------------------
+# When a program crashes, the error is logged as an event: the type of the
+# exception and the CLEANED message. Cleaned means that all file paths are
+# removed (they can contain user names), no traceback or source lines go
+# along, and the length is capped. Ctrl+C (KeyboardInterrupt) and SystemExit
+# do not count as errors. Decided on 2026-09-03; the course announces this
+# collection on a slide.
 
-# [\\/]+ statt [\\/]: In Fehlermeldungen stehen Pfade oft per repr()
-# mit VERDOPPELTEN Backslashes (r"C:\\Users\\...").
+# [\\/]+ instead of [\\/]: error messages often show paths through repr(),
+# with DOUBLED backslashes (r"C:\\Users\\...").
 _PATH_PATTERN = re.compile(
     r"(?:[A-Za-z]:)?[\\/]+(?:[^\\/\s'\"]+[\\/]+)+[^\\/\s'\"]+")
 
 
 def sanitize_error(message):
-    """Entfernt Pfade aus einer Fehlermeldung und deckelt die Laenge."""
+    """Removes paths from an error message and caps its length."""
     cleaned = _PATH_PATTERN.sub("<path>", str(message))
     return cleaned[:200]
 
 
 def install_error_hook(log, telemetry):
-    """Haengt sich an sys.excepthook, ohne die normale Ausgabe zu aendern."""
+    """Hooks into sys.excepthook without changing the normal output."""
     previous = sys.excepthook
 
     def hook(exc_type, exc, traceback):
@@ -169,9 +168,9 @@ def install_error_hook(log, telemetry):
                 log.write("error", type=exc_type.__name__,
                           message=sanitize_error(exc))
                 if telemetry is not None:
-                    telemetry.flush_now()   # der Thread stirbt gleich mit
+                    telemetry.flush_now()   # the thread is about to die too
             except Exception:
-                pass                        # niemals den Absturz verschlimmern
+                pass                        # never make the crash worse
         previous(exc_type, exc, traceback)
 
     sys.excepthook = hook
