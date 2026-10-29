@@ -30,7 +30,7 @@ import threading
 import urllib.request
 from collections import deque
 
-DEFAULT_SERVER = "https://lifi.uber.space"
+DEFAULT_SERVER = "https://lifi.hsos.uber.space"
 
 _FLUSH_SECONDS = 2.0             # send at least this often
 _MAX_QUEUE = 5000                # older events drop out at the front

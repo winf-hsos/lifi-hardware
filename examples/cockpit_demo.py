@@ -3,7 +3,7 @@
 Run this script with a device plugged in and you can watch it live in the
 cockpit (team as in the registry, during the pilot):
 
-    https://lifi.uber.space/cockpit?team=pilot-01
+    https://lifi.hsos.uber.space/cockpit?team=pilot-01
 
 The program runs for about a minute: two rounds through eight colours,
 three seconds each with readings running, and after the first round a
@@ -24,7 +24,7 @@ COLORS = [
 
 with LifiDevice.connect() as lifi:
     print(f"connected: LED {lifi.led.uid}, sensor {lifi.sensor.uid}")
-    print("Cockpit: https://lifi.uber.space/cockpit?team=pilot-01")
+    print("Cockpit: https://lifi.hsos.uber.space/cockpit?team=pilot-01")
     for round_number in range(2):
         for rgb in COLORS:
             lifi.led.set_color(*rgb)

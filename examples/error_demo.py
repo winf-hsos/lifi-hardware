@@ -28,7 +28,7 @@ if len(sys.argv) == 1:
         time.sleep(0.5)
     print()
     print("Four errors triggered. Have a look:")
-    print("  Cockpit: https://lifi.uber.space/cockpit?team=pilot-01")
+    print("  Cockpit: https://lifi.hsos.uber.space/cockpit?team=pilot-01")
     print("  (red marks on the timeline, tile 'last error')")
     sys.exit(0)
 
