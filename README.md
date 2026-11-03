@@ -58,20 +58,25 @@ Since 0.5.0, Challenge 1 is one file. It names its colours and three functions a
 ```python
 from lifi_hardware import receiver, run_test, sender
 
-COLORS = [(0, 0, 0), (255, 255, 255)]
+COLORS = {
+    "off":   (0, 0, 0),
+    "white": (255, 255, 255),
+}
 
-def calibrate(readings):        # readings[i]: Readings taken while colour i showed
+def calibrate(readings):        # readings["white"]: Readings taken while white showed
     ...
 
-def send_symbol(index):
-    sender.led.set_color(*COLORS[index])
+def send_symbol(name):
+    sender.led.set_color(*COLORS[name])
 
 def receive_symbol():
     r, g, b, c = receiver.sensor.read()
-    return 0                    # the number of the colour you recognised
+    return "off"                # the name of the colour you recognised
 
-run_test(send_symbol, receive_symbol, calibrate, symbols=len(COLORS))
+run_test(send_symbol, receive_symbol, calibrate, symbols=COLORS)
 ```
+
+Since 0.6.0 the symbols are the names in `COLORS`, in the calibration, in the two functions and in the result. Towards the server they travel as numbers, the position in `COLORS`. The first form with a list, `send_symbol(index)` and `symbols=len(COLORS)` still works and numbers the symbols from 0.
 
 With both devices on one laptop, the module lights one LED and asks whether it sends or receives, then runs the test on its own. With one device on each of two laptops, the same file runs on both; each asks whether it sends or receives, and the course server brings them together and says when the next colour comes. The random sequence comes fresh from the server for every run, and the result appears in the team cockpit. Without the server, one laptop with both devices still runs a practice run that does not count. Details in `_challenge.py`.
 

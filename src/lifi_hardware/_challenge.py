@@ -5,20 +5,26 @@ writes one file with three functions and hands them to ``run_test``:
 
     from lifi_hardware import sender, receiver, run_test
 
-    COLORS = [(0, 0, 0), (255, 255, 255)]
+    COLORS = {"off": (0, 0, 0), "white": (255, 255, 255)}
 
     def calibrate(readings):
         ...                                   # learn what each symbol looks like
 
-    def send_symbol(index):
-        sender.led.set_color(*COLORS[index])
+    def send_symbol(name):
+        sender.led.set_color(*COLORS[name])
 
     def receive_symbol():
         r, g, b, c = receiver.sensor.read()
         ...                                   # which symbol was it?
-        return 0
+        return "off"
 
-    run_test(send_symbol, receive_symbol, calibrate, symbols=len(COLORS))
+    run_test(send_symbol, receive_symbol, calibrate, symbols=COLORS)
+
+The symbols are the names in COLORS: ``send_symbol`` gets a name,
+``calibrate`` gets the readings by name, ``receive_symbol`` returns a name,
+and the result names them too. On the way to the server they travel as
+numbers (the position in COLORS), so names may be anything you like.
+``symbols=len(COLORS)`` still works and numbers the symbols from 0.
 
 The same file works in both set-ups. With both devices on one laptop, the
 module asks once which of the two sends, and the test runs step by step on
@@ -121,9 +127,11 @@ def _heading(title, text, end=""):
     print(f"{_paint(title, 'cyan', 'bold')}: {text}", end=end, flush=True)
 
 
-def _show(symbol):
-    """A recognised symbol for printing; None (an invalid answer) as a dash."""
-    return "-" if symbol is None else str(symbol)
+def _show(run, index, width=0):
+    """A symbol for printing, by its name; None (an invalid answer) as a dash.
+    ``width`` pads to the longest name, so that the columns stay in line."""
+    text = "-" if index is None else str(run.labels[index])
+    return text.rjust(width)
 
 
 def _shown_colour():
@@ -256,16 +264,44 @@ def _api(method, path, body=None):
 # --- Noting what was sent and received ------------------------------------------
 
 class _Run:
-    """One run of run_test: on the server, or locally as a practice run."""
+    """One run of run_test: on the server, or locally as a practice run.
 
-    def __init__(self, role, symbols, runs, practice, run_id=None):
+    Inside, every symbol is its number (its position in the alphabet), and
+    so it travels to the server. ``labels`` are the names your functions
+    see: the names in COLORS, or 0, 1, 2, ... with ``symbols=len(COLORS)``.
+    """
+
+    def __init__(self, role, labels, runs, practice, run_id=None):
         self.role = role
-        self.symbols = symbols
+        self.labels = labels
+        self.symbols = len(labels)
+        self.width = max(len(str(label)) for label in labels)
         self.runs = runs
         self.practice = practice
         self.id = run_id
         self.sequence = None         # known locally only in a practice run
         self.received = []
+
+
+def _labels(symbols):
+    """The names of the symbols: a number gives 0 to n-1, a dictionary such
+    as COLORS gives its keys, a list gives its entries."""
+    if isinstance(symbols, bool):
+        raise TypeError("symbols has to be your alphabet, for example "
+                        "run_test(..., symbols=COLORS)")
+    if isinstance(symbols, int):
+        labels = list(range(symbols))
+    else:
+        try:
+            labels = list(symbols)
+        except TypeError:
+            raise TypeError("symbols has to be your alphabet, for example "
+                            "run_test(..., symbols=COLORS)") from None
+    if len(labels) < 2:
+        raise ValueError("An alphabet needs at least two symbols.")
+    if len(set(map(str, labels))) != len(labels):
+        raise ValueError("Every symbol in the alphabet needs its own name.")
+    return labels
 
 
 def note_sent(run, position, symbol):
@@ -276,7 +312,8 @@ def note_sent(run, position, symbol):
     into the measurement log of the sending device and to the server.
     """
     device = _roles["sender"]
-    device._log.write("note_sent", run=run.id, position=position, symbol=symbol)
+    device._log.write("note_sent", run=run.id, position=position, symbol=symbol,
+                      name=str(run.labels[symbol]))
     if not run.practice:
         return _api("POST", f"/api/runs/{run.id}/sent",
                     {"role": run.role, "position": position, "symbol": symbol})
@@ -290,7 +327,8 @@ def note_received(run, position, symbol):
     """
     device = _roles["receiver"]
     device._log.write("note_received", run=run.id, position=position,
-                      symbol=symbol)
+                      symbol=symbol,
+                      name=None if symbol is None else str(run.labels[symbol]))
     if not run.practice:
         return _api("POST", f"/api/runs/{run.id}/received",
                     {"role": run.role, "position": position, "symbol": symbol})
@@ -318,13 +356,20 @@ def _measure_calibration():
     return readings
 
 
-def _check(symbol, symbols):
-    if isinstance(symbol, bool) or not isinstance(symbol, int) or not 0 <= symbol < symbols:
-        print(_paint(f"  receive_symbol() returned {symbol!r}, but it has to return a "
-                     f"whole number from 0 to {symbols - 1}. Counted as a mistake.",
-                     "yellow"))
-        return None
-    return symbol
+def _check(run, answer):
+    """The number of the symbol receive_symbol() named, or None if it named
+    none of the alphabet (that counts as a mistake)."""
+    for index, label in enumerate(run.labels):
+        if type(answer) is type(label) and answer == label:
+            return index
+    if all(isinstance(label, int) for label in run.labels):
+        expected = f"a whole number from 0 to {run.symbols - 1}"
+    else:
+        expected = "one of the names in your alphabet: " + ", ".join(
+            repr(label) for label in run.labels)
+    print(_paint(f"  receive_symbol() returned {answer!r}, but it has to return "
+                 f"{expected}. Counted as a mistake.", "yellow"))
+    return None
 
 
 def _wait(run, until, what):
@@ -348,28 +393,34 @@ def run_test(send_symbol, receive_symbol, calibrate=None, symbols=None,
              runs=20, team=None):
     """The test for Challenge 1: how many symbols get through without a mistake?
 
-    ``send_symbol(index)`` shows the symbol with that number, from 0 to
-    ``symbols - 1``. ``receive_symbol()`` measures and returns the number of
-    the symbol it recognised. ``calibrate(readings)`` is called once before
-    the test, after the whole alphabet has been shown once: ``readings`` is a
-    dictionary from each symbol number to a list of Readings taken while that
-    symbol was showing. What you make of them is up to you.
+    ``symbols`` is your alphabet, usually ``COLORS``: its names are the
+    symbols. ``send_symbol(name)`` shows the symbol with that name.
+    ``receive_symbol()`` measures and returns the name of the symbol it
+    recognised. ``calibrate(readings)`` is called once before the test,
+    after the whole alphabet has been shown once: ``readings`` is a
+    dictionary from each name to a list of Readings taken while that symbol
+    was showing, so ``readings["white"]``. What you make of them is up to you.
 
-    ``symbols`` is the size of your alphabet, usually ``len(COLORS)``. ``team``
-    is needed only if your devices are not registered with a team yet: then
-    both laptops find each other by this name, and the run does not count.
+    With ``symbols=len(COLORS)``, as in the first version of the template,
+    the symbols are the numbers 0 to ``len(COLORS) - 1`` instead of names.
 
-    Returns a dictionary with the number of hits and the two sequences.
+    ``team`` is needed only if your devices are not registered with a team
+    yet: then both laptops find each other by this name, and the run does
+    not count.
+
+    Returns a dictionary with the number of hits and the two sequences,
+    by name.
     """
     if symbols is None:
-        raise TypeError("run_test needs the size of your alphabet, for "
-                        "example run_test(..., symbols=len(COLORS))")
+        raise TypeError("run_test needs your alphabet, for example "
+                        "run_test(..., symbols=COLORS)")
+    labels = _labels(symbols)
     roles = _choose_roles()
     role = ("both" if roles["sender"] and roles["receiver"]
             else "sender" if roles["sender"] else "receiver")
     some_device = roles["sender"] or roles["receiver"]
 
-    run = _start(role, symbols, runs, team, some_device)
+    run = _start(role, labels, runs, team, some_device)
     try:
         if role == "both":
             _run_both(run, send_symbol, receive_symbol, calibrate)
@@ -383,8 +434,9 @@ def run_test(send_symbol, receive_symbol, calibrate=None, symbols=None,
     return _report(run)
 
 
-def _start(role, symbols, runs, team, device):
+def _start(role, labels, runs, team, device):
     """Asks the server for a new run, or falls back to a practice run."""
+    symbols = len(labels)
     if _server() is not None:
         try:
             state = _api("POST", "/api/runs/join", {
@@ -392,7 +444,7 @@ def _start(role, symbols, runs, team, device):
                 "sensor_uid": device.sensor.uid,
                 "master_uid": device.master_uid, "team": team,
                 "symbols": symbols, "runs": runs})
-            run = _Run(role, symbols, runs, practice=False, run_id=state["run_id"])
+            run = _Run(role, labels, runs, practice=False, run_id=state["run_id"])
             note = (_paint("counts", "green") if state["counted"] else
                     _paint("does NOT count (devices not registered)", "yellow"))
             print(f"Run for {_paint(state['team'], 'bold')}: {symbols} symbols, "
@@ -407,7 +459,7 @@ def _start(role, symbols, runs, team, device):
             "WLAN, or plug both devices into one laptop for a practice run.")
     print(_paint("The course server cannot be reached: PRACTICE RUN, it does not count.",
                  "yellow"))
-    run = _Run(role, symbols, runs, practice=True, run_id="practice")
+    run = _Run(role, labels, runs, practice=True, run_id="practice")
     rng = random.SystemRandom()
     run.sequence = [rng.randrange(symbols) for _ in range(runs)]
     return run
@@ -440,20 +492,21 @@ def _run_both(run, send_symbol, receive_symbol, calibrate):
             if calibrate is not None:
                 calibrate(readings)
             _heading("Testing", f"{run.runs} symbols", end="\n")
-        send_symbol(symbol)
+        send_symbol(run.labels[symbol])
         time.sleep(_settle_time())
         note_sent(run, position, symbol)
         if phase == "calibrate":
-            readings[symbol] = _measure_calibration()
+            readings[run.labels[symbol]] = _measure_calibration()
             note_received(run, position, None)
             print(_swatch(_shown_colour()) or ".", end="", flush=True)
         else:
-            got = _check(receive_symbol(), run.symbols)
+            got = _check(run, receive_symbol())
             run.received.append(got)
             note_received(run, position, got)
             mark = _paint("ok", "green") if got == symbol else _paint("MISTAKE", "red", "bold")
-            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent {symbol:>2} "
-                  f"{_swatch(_shown_colour())}recognised {_show(got):>2}  {mark}")
+            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent "
+                  f"{_show(run, symbol, run.width)} {_swatch(_shown_colour())}"
+                  f"recognised {_show(run, got, run.width)}  {mark}")
         position += 1
 
 
@@ -471,12 +524,12 @@ def _run_sender(run, send_symbol):
         if state["phase"] == "test" and position == run.symbols:
             print()
             _heading("Testing", f"{run.runs} symbols", end="\n")
-        send_symbol(symbol)
+        send_symbol(run.labels[symbol])
         time.sleep(0.1)
         note_sent(run, position, symbol)
         if state["phase"] == "test":
-            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent {symbol:>2} "
-                  f"{_swatch(_shown_colour())}".rstrip())
+            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent "
+                  f"{_show(run, symbol, run.width)} {_swatch(_shown_colour())}".rstrip())
         else:
             print(_swatch(_shown_colour()) or ".", end="", flush=True)
         # Wait until the receiver has measured, then the next symbol comes
@@ -498,7 +551,7 @@ def _run_receiver(run, receive_symbol, calibrate):
         position = state["position"]
         time.sleep(_settle_time())
         if state["phase"] == "calibrate":
-            readings[state["symbol"]] = _measure_calibration()
+            readings[run.labels[state["symbol"]]] = _measure_calibration()
             note_received(run, position, None)
             print(".", end="", flush=True)
             continue
@@ -507,10 +560,11 @@ def _run_receiver(run, receive_symbol, calibrate):
             if calibrate is not None:
                 calibrate(readings)
             _heading("Testing", f"{run.runs} symbols", end="\n")
-        got = _check(receive_symbol(), run.symbols)
+        got = _check(run, receive_symbol())
         run.received.append(got)
         result = note_received(run, position, got)
-        print(f"  {position - run.symbols + 1:>3}/{run.runs}  recognised {_show(got):>2}")
+        print(f"  {position - run.symbols + 1:>3}/{run.runs}  recognised "
+              f"{_show(run, got, run.width)}")
         if result and result["state"] == "done":
             run.state = result
             return
@@ -543,19 +597,27 @@ def _report(run):
     if mistakes:
         print("Mistakes (position: sent -> recognised):")
         for position, sent, got in mistakes:
-            print(f"  {position:>3}: {sent} -> {_paint(_show(got), 'red')}")
+            print(f"  {position:>3}: {_show(run, sent, run.width)} -> "
+                  f"{_paint(_show(run, got), 'red')}")
+        # The most common mix-up; answers outside the alphabet are no mix-up
         pairs = {}
         for _, sent, got in mistakes:
-            pairs[(sent, got)] = pairs.get((sent, got), 0) + 1
-        common = max(pairs.items(), key=lambda item: item[1])
+            if got is not None:
+                pairs[(sent, got)] = pairs.get((sent, got), 0) + 1
+        common = max(pairs.items(), key=lambda item: item[1], default=(None, 0))
         if common[1] > 1:
             (sent, got), count = common
-            print(_paint(f"{sent} was taken for {_show(got)} {count} times: these two "
-                         f"are probably too close together.", "yellow"))
+            print(_paint(f"{_show(run, sent)} was taken for {_show(run, got)} {count} "
+                         f"times: these two are probably too close together.", "yellow"))
     else:
         print(_paint("No mistakes.", "green"))
     if run.practice:
         print(_paint("This was a practice run; it does not count.", "yellow"))
+
+    def name(index):
+        return None if index is None else run.labels[index]
+
     return {"hits": hits, "runs": run.runs, "symbols": run.symbols,
-            "sequence": sequence, "received": received,
+            "sequence": [name(i) for i in sequence],
+            "received": [name(i) for i in received],
             "practice": run.practice}
