@@ -51,4 +51,28 @@ led.set_color(255, 0, 0)
 
 The same works without changing the code through the environment variable `LIFI_MASTER=64SK5w`, and with `LifiDevice.connect(master="64SK5w")`. If two devices are plugged in and a script does not choose, it gets an error message that names both UIDs instead of a device made of the LED of one and the sensor of the other.
 
+## Challenge 1: sender, receiver and run_test
+
+Since 0.5.0, Challenge 1 is one file. It names its colours and three functions and hands them to `run_test`, which runs the test:
+
+```python
+from lifi_hardware import receiver, run_test, sender
+
+COLORS = [(0, 0, 0), (255, 255, 255)]
+
+def calibrate(readings):        # readings[i]: Readings taken while colour i showed
+    ...
+
+def send_symbol(index):
+    sender.led.set_color(*COLORS[index])
+
+def receive_symbol():
+    r, g, b, c = receiver.sensor.read()
+    return 0                    # the number of the colour you recognised
+
+run_test(send_symbol, receive_symbol, calibrate, symbols=len(COLORS))
+```
+
+With both devices on one laptop, the module lights one LED and asks whether it sends or receives, then runs the test on its own. With one device on each of two laptops, the same file runs on both; each asks whether it sends or receives, and the course server brings them together and says when the next colour comes. The random sequence comes fresh from the server for every run, and the result appears in the team cockpit. Without the server, one laptop with both devices still runs a practice run that does not count. Details in `_challenge.py`.
+
 The module is deliberately short and commented: from Challenge 2 on it is worth looking inside. The raw Tinkerforge interface stays within reach through `led.raw` and `sensor.raw`.
