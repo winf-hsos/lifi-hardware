@@ -1,6 +1,6 @@
 [project]
 name = "lifi-hardware"
-version = "0.5.0"
+version = "0.5.1"
 description = "Readable interface to the LED and the colour sensor of the LiFi project (Tinkerforge)"
 requires-python = ">=3.10"
 dependencies = ["tinkerforge>=2.1"]

@@ -46,6 +46,7 @@ import atexit
 import json
 import os
 import random
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -58,6 +59,81 @@ _READINGS_PER_SYMBOL = 5     # readings per symbol during calibration
 _POLL = 0.15                 # seconds between two questions to the server
 _WAIT_FOR_PARTNER = 300      # seconds to wait for the other laptop
 _TIMEOUT = 5                 # seconds for one request to the server
+
+
+# --- Colours on the console -------------------------------------------------------
+#
+# Only for looks: ok in green, mistakes in red, and a small block in the colour
+# the LED showed. When the output does not go to a console (for example when
+# OpenCode reads it) or NO_COLOR is set, everything stays plain text.
+
+def _colour_support():
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    if not getattr(sys.stdout, "isatty", lambda: False)():
+        return False
+    if os.name == "nt":
+        # A Windows console understands colour codes only after being asked
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_uint32()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                return False
+            return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+        except Exception:
+            return False
+    return True
+
+
+_COLOUR = _colour_support()
+_STYLES = {"bold": "1", "dim": "2", "red": "31", "green": "32", "yellow": "33",
+           "cyan": "36", "on-green": "42", "on-red": "41"}
+
+
+def _paint(text, *styles):
+    """The text in the given styles, or unchanged without colour support."""
+    if not _COLOUR or not styles:
+        return text
+    return f"\033[{';'.join(_STYLES[s] for s in styles)}m{text}\033[0m"
+
+
+def _swatch(rgb):
+    """Two character cells in the colour (r, g, b), for the console.
+
+    Uses the 256-colour palette, which every common console shows. Off is
+    drawn as two dim dashes, because black would vanish on a black console.
+    """
+    if not _COLOUR or rgb is None:
+        return ""
+    if tuple(rgb) == (0, 0, 0):
+        return _paint("--", "dim") + " "
+    r, g, b = (round(v / 255 * 5) for v in rgb)
+    return f"\033[48;5;{16 + 36 * r + 6 * g + b}m  \033[0m "
+
+
+def _heading(title, text, end=""):
+    """A step of the test, such as "Calibrating: ...". Without a line break,
+    so that the calibration can add one mark per symbol to the same line."""
+    print(f"{_paint(title, 'cyan', 'bold')}: {text}", end=end, flush=True)
+
+
+def _show(symbol):
+    """A recognised symbol for printing; None (an invalid answer) as a dash."""
+    return "-" if symbol is None else str(symbol)
+
+
+def _shown_colour():
+    """The colour the sending LED shows right now, if it is on this laptop."""
+    if not _COLOUR or not _roles or _roles["sender"] is None:
+        return None
+    try:
+        return _roles["sender"].led.color
+    except Exception:
+        return None
 
 
 # --- Who sends, who receives ----------------------------------------------------
@@ -117,7 +193,7 @@ def _choose_roles():
         receiving = masters[int(_ask("Number of the device that receives: ", numbers)) - 1]
         if sending == receiving:
             raise RuntimeError("Sender and receiver have to be two different devices.")
-    print(f"Sender: {sending}, receiver: {receiving}")
+    print(f"Sender: {_paint(sending, 'bold')}, receiver: {_paint(receiving, 'bold')}")
     _roles = {"sender": devices[sending], "receiver": devices[receiving]}
     return _roles
 
@@ -244,8 +320,9 @@ def _measure_calibration():
 
 def _check(symbol, symbols):
     if isinstance(symbol, bool) or not isinstance(symbol, int) or not 0 <= symbol < symbols:
-        print(f"  receive_symbol() returned {symbol!r}, but it has to return a "
-              f"whole number from 0 to {symbols - 1}. Counted as a mistake.")
+        print(_paint(f"  receive_symbol() returned {symbol!r}, but it has to return a "
+                     f"whole number from 0 to {symbols - 1}. Counted as a mistake.",
+                     "yellow"))
         return None
     return symbol
 
@@ -259,7 +336,7 @@ def _wait(run, until, what):
         if until(state):
             return state
         if not shown and time.time() - started > 2:
-            print(f"  waiting for {what} ...")
+            print(_paint(f"  waiting for {what} ...", "dim"))
             shown = True
         if time.time() - started > _WAIT_FOR_PARTNER:
             raise RuntimeError(f"Waited {_WAIT_FOR_PARTNER} s for {what}. "
@@ -315,8 +392,10 @@ def _start(role, symbols, runs, team, device):
                 "sensor_uid": device.sensor.uid, "team": team,
                 "symbols": symbols, "runs": runs})
             run = _Run(role, symbols, runs, practice=False, run_id=state["run_id"])
-            note = "counts" if state["counted"] else "does NOT count (devices not registered)"
-            print(f"Run for {state['team']}: {symbols} symbols, {runs} runs, this run {note}.")
+            note = (_paint("counts", "green") if state["counted"] else
+                    _paint("does NOT count (devices not registered)", "yellow"))
+            print(f"Run for {_paint(state['team'], 'bold')}: {symbols} symbols, "
+                  f"{runs} runs, this run {note}.")
             return run
         except (urllib.error.URLError, TimeoutError, OSError):
             pass
@@ -325,7 +404,8 @@ def _start(role, symbols, runs, team, device):
             "The course server cannot be reached. With two laptops, the server "
             "keeps the two in step, so this does not work offline. Check the "
             "WLAN, or plug both devices into one laptop for a practice run.")
-    print("The course server cannot be reached: PRACTICE RUN, it does not count.")
+    print(_paint("The course server cannot be reached: PRACTICE RUN, it does not count.",
+                 "yellow"))
     run = _Run(role, symbols, runs, practice=True, run_id="practice")
     rng = random.SystemRandom()
     run.sequence = [rng.randrange(symbols) for _ in range(runs)]
@@ -340,7 +420,7 @@ def _steps(run):
 
 def _run_both(run, send_symbol, receive_symbol, calibrate):
     """Both devices on this laptop: send, wait, measure, note, next."""
-    print("Calibrating: showing the whole alphabet once ...")
+    _heading("Calibrating", "showing the whole alphabet once ")
     readings = {}
     position = 0
     while True:
@@ -355,29 +435,31 @@ def _run_both(run, send_symbol, receive_symbol, calibrate):
                 return
             phase, symbol = state["phase"], state["symbol"]
         if phase == "test" and position == run.symbols:
+            print()
             if calibrate is not None:
                 calibrate(readings)
-            print(f"Testing {run.runs} symbols ...")
+            _heading("Testing", f"{run.runs} symbols", end="\n")
         send_symbol(symbol)
         time.sleep(_settle_time())
         note_sent(run, position, symbol)
         if phase == "calibrate":
             readings[symbol] = _measure_calibration()
             note_received(run, position, None)
+            print(_swatch(_shown_colour()) or ".", end="", flush=True)
         else:
             got = _check(receive_symbol(), run.symbols)
             run.received.append(got)
             note_received(run, position, got)
-            mark = "ok" if got == symbol else "MISTAKE"
-            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent {symbol}  "
-                  f"recognised {got}  {mark}")
+            mark = _paint("ok", "green") if got == symbol else _paint("MISTAKE", "red", "bold")
+            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent {symbol:>2} "
+                  f"{_swatch(_shown_colour())}recognised {_show(got):>2}  {mark}")
         position += 1
 
 
 def _run_sender(run, send_symbol):
     """This laptop only sends; the server says what and when."""
     _wait(run, lambda s: s["state"] != "waiting", "the receiving laptop")
-    print("Calibrating: showing the whole alphabet once ...")
+    _heading("Calibrating", "showing the whole alphabet once ")
     while True:
         state = _wait(run, lambda s: s["state"] == "done" or not s["sent"],
                       "the receiver")
@@ -386,12 +468,16 @@ def _run_sender(run, send_symbol):
             return
         position, symbol = state["position"], state["symbol"]
         if state["phase"] == "test" and position == run.symbols:
-            print(f"Testing {run.runs} symbols ...")
+            print()
+            _heading("Testing", f"{run.runs} symbols", end="\n")
         send_symbol(symbol)
         time.sleep(0.1)
         note_sent(run, position, symbol)
         if state["phase"] == "test":
-            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent {symbol}")
+            print(f"  {position - run.symbols + 1:>3}/{run.runs}  sent {symbol:>2} "
+                  f"{_swatch(_shown_colour())}".rstrip())
+        else:
+            print(_swatch(_shown_colour()) or ".", end="", flush=True)
         # Wait until the receiver has measured, then the next symbol comes
         _wait(run, lambda s: s["state"] == "done" or s["position"] > position,
               "the receiver")
@@ -400,7 +486,7 @@ def _run_sender(run, send_symbol):
 def _run_receiver(run, receive_symbol, calibrate):
     """This laptop only receives; it measures whenever the sender is ready."""
     _wait(run, lambda s: s["state"] != "waiting", "the sending laptop")
-    print("Calibrating: measuring the whole alphabet once ...")
+    _heading("Calibrating", "measuring the whole alphabet once ")
     readings = {}
     while True:
         state = _wait(run, lambda s: s["state"] == "done" or s["sent"],
@@ -413,15 +499,17 @@ def _run_receiver(run, receive_symbol, calibrate):
         if state["phase"] == "calibrate":
             readings[state["symbol"]] = _measure_calibration()
             note_received(run, position, None)
+            print(".", end="", flush=True)
             continue
         if position == run.symbols:
+            print()
             if calibrate is not None:
                 calibrate(readings)
-            print(f"Testing {run.runs} symbols ...")
+            _heading("Testing", f"{run.runs} symbols", end="\n")
         got = _check(receive_symbol(), run.symbols)
         run.received.append(got)
         result = note_received(run, position, got)
-        print(f"  {position - run.symbols + 1:>3}/{run.runs}  recognised {got}")
+        print(f"  {position - run.symbols + 1:>3}/{run.runs}  recognised {_show(got):>2}")
         if result and result["state"] == "done":
             run.state = result
             return
@@ -437,24 +525,36 @@ def _report(run):
         sequence, received = state["sequence"], state["received"]
     hits = sum(1 for a, b in zip(sequence, received) if a == b)
     print()
+    # One cell per attempt: green for a hit, red for a mistake (+ and x
+    # without colour support)
+    if _COLOUR:
+        hit, miss = _paint(" ", "on-green"), _paint(" ", "on-red")
+    else:
+        hit, miss = "+", "x"
+    cells = " ".join(hit if a == b else miss for a, b in zip(sequence, received))
+    print(f"  {cells}")
     kind = "Practice run" if run.practice else "Result"
-    print(f"{kind}: {hits} of {run.runs} recognised with {run.symbols} symbols.")
+    perfect = hits == run.runs
+    print(_paint(f"{kind}: {hits} of {run.runs} recognised with {run.symbols} symbols.",
+                 "bold", "green" if perfect else "red"))
     mistakes = [(i + 1, a, b) for i, (a, b) in enumerate(zip(sequence, received))
                 if a != b]
     if mistakes:
         print("Mistakes (position: sent -> recognised):")
         for position, sent, got in mistakes:
-            print(f"  {position:>3}: {sent} -> {got}")
+            print(f"  {position:>3}: {sent} -> {_paint(_show(got), 'red')}")
         pairs = {}
         for _, sent, got in mistakes:
             pairs[(sent, got)] = pairs.get((sent, got), 0) + 1
         common = max(pairs.items(), key=lambda item: item[1])
         if common[1] > 1:
             (sent, got), count = common
-            print(f"{sent} was taken for {got} {count} times: these two are "
-                  f"probably too close together.")
+            print(_paint(f"{sent} was taken for {_show(got)} {count} times: these two "
+                         f"are probably too close together.", "yellow"))
     else:
-        print("No mistakes.")
+        print(_paint("No mistakes.", "green"))
+    if run.practice:
+        print(_paint("This was a practice run; it does not count.", "yellow"))
     return {"hits": hits, "runs": run.runs, "symbols": run.symbols,
             "sequence": sequence, "received": received,
             "practice": run.practice}
