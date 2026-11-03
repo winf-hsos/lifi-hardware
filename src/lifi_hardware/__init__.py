@@ -45,6 +45,11 @@ master brick, which the Brick Viewer shows:
 
 The same works without changing the code through the environment
 variable ``LIFI_MASTER=64SK5w``.
+
+For Challenge 1 there are ``sender``, ``receiver`` and ``run_test``: one
+file with ``send_symbol``, ``receive_symbol`` and ``calibrate``, the same
+for one laptop with both devices and for two laptops with one device each.
+How that works: see _challenge.py.
 """
 
 from __future__ import annotations
@@ -60,7 +65,7 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.4.3"
+__version__ = "0.5.0"
 
 # Device identifiers used by Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0
@@ -239,6 +244,56 @@ class Sensor:
         return reading
 
 
+def _discover(ipcon, master=None):
+    """Asks the Brick Daemon which parts hang on which master brick.
+
+    Returns {master_uid: {device_identifier: uid}}.
+    """
+    bricks = {}
+
+    def on_enumerate(uid, connected_uid, position, hw_version,
+                     fw_version, device_identifier, enumeration_type):
+        if enumeration_type == IPConnection.ENUMERATION_TYPE_DISCONNECTED:
+            return
+        if device_identifier in (_ID_RGB_LED, _ID_COLOR):
+            bricks.setdefault(connected_uid, {}).setdefault(device_identifier, uid)
+
+    ipcon.register_callback(IPConnection.CALLBACK_ENUMERATE, on_enumerate)
+    ipcon.enumerate()
+    # Wait briefly until all parts have reported. Once one device is
+    # complete, wait a moment longer for others, so that a second
+    # device on the same computer is not missed.
+    deadline = time.time() + 2.0
+    settle = None
+    while time.time() < deadline:
+        done = _complete(bricks)
+        if master is not None and master in done:
+            break
+        if master is None and done:
+            settle = settle or time.time() + 0.3
+            if time.time() > settle:
+                break
+        time.sleep(0.05)
+    return bricks
+
+
+def _complete(bricks):
+    """The master bricks that carry both an LED and a sensor."""
+    return sorted(m for m, parts in bricks.items()
+                  if _ID_RGB_LED in parts and _ID_COLOR in parts)
+
+
+def find_devices(host="localhost", port=4223):
+    """The UIDs of the master bricks of all complete devices on this
+    computer, for example ``["64SK5w", "6Bq3Xa"]``."""
+    ipcon = IPConnection()
+    ipcon.connect(host, port)
+    try:
+        return _complete(_discover(ipcon))
+    finally:
+        ipcon.disconnect()
+
+
 class LifiDevice:
     """Your LiFi device: an LED and a sensor on one master brick."""
 
@@ -273,39 +328,8 @@ class LifiDevice:
         ipcon = IPConnection()
         ipcon.connect(host, port)
 
-        # For each master brick, the parts that hang on it:
-        # {master_uid: {device_identifier: uid}}
-        bricks = {}
-
-        def on_enumerate(uid, connected_uid, position, hw_version,
-                         fw_version, device_identifier, enumeration_type):
-            if enumeration_type == IPConnection.ENUMERATION_TYPE_DISCONNECTED:
-                return
-            if device_identifier in (_ID_RGB_LED, _ID_COLOR):
-                bricks.setdefault(connected_uid, {}).setdefault(device_identifier, uid)
-
-        def complete():
-            return sorted(m for m, parts in bricks.items()
-                          if _ID_RGB_LED in parts and _ID_COLOR in parts)
-
-        ipcon.register_callback(IPConnection.CALLBACK_ENUMERATE, on_enumerate)
-        ipcon.enumerate()
-        # Wait briefly until all parts have reported. Once one device is
-        # complete, wait a moment longer for others, so that a second
-        # device on the same computer is not missed.
-        deadline = time.time() + 2.0
-        settle = None
-        while time.time() < deadline:
-            done = complete()
-            if master is not None and master in done:
-                break
-            if master is None and done:
-                settle = settle or time.time() + 0.3
-                if time.time() > settle:
-                    break
-            time.sleep(0.05)
-
-        devices = complete()
+        bricks = _discover(ipcon, master)
+        devices = _complete(bricks)
         if master is not None:
             chosen = master
         elif len(devices) > 1:
@@ -423,3 +447,9 @@ class _LazyPart:
 # placeholders that connect only on their first use.
 led = cast(Led, _LazyPart("led"))
 sensor = cast(Sensor, _LazyPart("sensor"))
+
+
+# Challenge 1: sender, receiver and the test (see _challenge.py). Imported
+# at the end, because that file builds on LifiDevice and find_devices.
+from ._challenge import (note_received, note_sent, receiver,  # noqa: E402
+                         run_test, sender)
