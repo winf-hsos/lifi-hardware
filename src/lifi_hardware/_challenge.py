@@ -389,7 +389,8 @@ def _start(role, symbols, runs, team, device):
         try:
             state = _api("POST", "/api/runs/join", {
                 "role": role, "led_uid": device.led.uid,
-                "sensor_uid": device.sensor.uid, "team": team,
+                "sensor_uid": device.sensor.uid,
+                "master_uid": device.master_uid, "team": team,
                 "symbols": symbols, "runs": runs})
             run = _Run(role, symbols, runs, practice=False, run_id=state["run_id"])
             note = (_paint("counts", "green") if state["counted"] else
