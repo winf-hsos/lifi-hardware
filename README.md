@@ -76,6 +76,8 @@ def receive_symbol():
 run_test(send_symbol, receive_symbol, calibrate, symbols=COLORS)
 ```
 
+Since 0.7.0 `run_test` also takes the settings of the receiving sensor, `gain` (1, 4, 16 or 60) and `integration_time` (2.4, 24, 101, 154 or 700 ms): `run_test(..., symbols=COLORS, gain=4, integration_time=101)`. It sets them before the calibration, so calibration and test measure the same way; a laptop that only sends ignores them. Without them the sensor measures with 16x and 154 ms. Every run reports them to the course server, and the team cockpit shows them next to the result.
+
 Since 0.6.0 the symbols are the names in `COLORS`, in the calibration, in the two functions and in the result. Towards the server they travel as numbers, the position in `COLORS`. The first form with a list, `send_symbol(index)` and `symbols=len(COLORS)` still works and numbers the symbols from 0.
 
 With both devices on one laptop, the module lights one LED and asks whether it sends or receives, then runs the test on its own. With one device on each of two laptops, the same file runs on both; each asks whether it sends or receives, and the course server brings them together and says when the next colour comes. The random sequence comes fresh from the server for every run, and the result appears in the team cockpit. Without the server, one laptop with both devices still runs a practice run that does not count. Details in `_challenge.py`.
