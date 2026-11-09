@@ -66,6 +66,7 @@ import atexit
 import json
 import os
 import random
+import secrets
 import sys
 import time
 import urllib.error
@@ -79,6 +80,8 @@ _READINGS_PER_SYMBOL = 5     # readings per symbol during calibration
 _POLL = 0.15                 # seconds between two questions to the server
 _WAIT_FOR_PARTNER = 300      # seconds to wait for the other laptop
 _TIMEOUT = 5                 # seconds for one request to the server
+_RETRY_FOR = 30              # seconds to keep asking again after a failure
+_RETRY_CODES = (502, 503, 504)  # the server is restarting or overloaded
 
 
 # --- Colours on the console -------------------------------------------------------
@@ -259,20 +262,51 @@ def _server():
     return url.rstrip("/")
 
 
-def _api(method, path, body=None):
+def _api_once(method, path, body):
     request = urllib.request.Request(
         _server() + path, method=method,
         data=None if body is None else json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
+    with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _api(method, path, body=None):
+    """One request to the course server, asked again after a short failure.
+
+    In a room with forty laptops in one WLAN, a request now and then gets no
+    answer in time. Since 0.8.1 that no longer ends the run: the module
+    waits a moment and asks again, for up to ``_RETRY_FOR`` seconds. Asking
+    twice is safe, because the server recognises a repeated message (the
+    same position, the same ``join_id``) and does not count it twice.
+    A refusal (the server answered, but said no) is not asked again.
+    """
+    started = time.time()
+    pause = 0.5
+    told = False
+    while True:
         try:
-            detail = json.loads(error.read().decode("utf-8")).get("detail")
-        except (ValueError, AttributeError):
-            detail = None
-        raise ServerError(detail or f"the server answered {error.code}") from None
+            return _api_once(method, path, body)
+        except urllib.error.HTTPError as error:
+            if error.code not in _RETRY_CODES:
+                try:
+                    detail = json.loads(error.read().decode("utf-8")).get("detail")
+                except (ValueError, AttributeError):
+                    detail = None
+                raise ServerError(detail or f"the server answered {error.code}") from None
+            failure = error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            failure = error
+        if time.time() - started + pause > _RETRY_FOR:
+            if isinstance(failure, urllib.error.HTTPError):
+                raise ServerError(f"the server answered {failure.code}") from None
+            raise failure
+        if not told:
+            print(_paint("  the course server did not answer in time, asking again ...",
+                         "dim"))
+            told = True
+        time.sleep(pause)
+        pause = min(pause * 2, 4)
 
 
 # --- Noting what was sent and received ------------------------------------------
@@ -510,7 +544,10 @@ def _start(role, labels, runs, team, device, settings=None, alphabet=None):
                 "role": role, "led_uid": device.led.uid,
                 "sensor_uid": device.sensor.uid,
                 "master_uid": device.master_uid, "team": team,
-                "symbols": symbols, "runs": runs, **(settings or {})}
+                "symbols": symbols, "runs": runs,
+                # the same id on every retry, so the server hands out the
+                # same run instead of a second one (since 0.8.1)
+                "join_id": secrets.token_urlsafe(12), **(settings or {})}
             if alphabet:
                 payload["alphabet"] = alphabet
             state = _api("POST", "/api/runs/join", payload)

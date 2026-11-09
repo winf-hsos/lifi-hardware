@@ -76,6 +76,8 @@ def receive_symbol():
 run_test(send_symbol, receive_symbol, calibrate, symbols=COLORS)
 ```
 
+Since 0.8.1 `run_test` rides out short network failures: when the course server does not answer in time, the module waits a moment and asks again for up to 30 seconds before it gives up, instead of stopping the run at the first timeout. Nothing changes in your code.
+
 Since 0.8.0 `run_test` also tells the course server the names and colours of the alphabet (from `COLORS`), so the projector view of an acceptance test shows the real colours; nothing changes in your code.
 
 Since 0.7.0 `run_test` also takes the settings of the receiving sensor, `gain` (1, 4, 16 or 60) and `integration_time` (2.4, 24, 101, 154 or 700 ms): `run_test(..., symbols=COLORS, gain=4, integration_time=101)`. It sets them before the calibration, so calibration and test measure the same way; a laptop that only sends ignores them. Without them the sensor measures with 16x and 154 ms. Every run reports them to the course server, and the team cockpit shows them next to the result.
