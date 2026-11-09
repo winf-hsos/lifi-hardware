@@ -65,7 +65,7 @@ from tinkerforge.bricklet_rgb_led_v2 import BrickletRGBLEDV2
 
 from ._telemetry import DEFAULT_SERVER, Telemetry, install_error_hook
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 # Device identifiers used by Tinkerforge (device_identifier)
 _ID_RGB_LED = 2127               # RGB LED Bricklet 2.0

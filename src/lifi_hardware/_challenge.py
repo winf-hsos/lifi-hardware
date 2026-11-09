@@ -456,7 +456,8 @@ def run_test(send_symbol, receive_symbol, calibrate=None, symbols=None,
             sensor.set_integration_time(integration_time)
         settings = {"gain": sensor.gain, "integration_time": sensor.integration_time}
 
-    run = _start(role, labels, runs, team, some_device, settings)
+    run = _start(role, labels, runs, team, some_device, settings,
+                 _alphabet(symbols, labels))
     if settings:
         print(f"Sensor of the receiver: gain {settings['gain']}x, "
               f"integration time {settings['integration_time']} ms.")
@@ -473,16 +474,46 @@ def run_test(send_symbol, receive_symbol, calibrate=None, symbols=None,
     return {**_report(run), **settings}
 
 
-def _start(role, labels, runs, team, device, settings=None):
+def _color(value):
+    """A colour from the alphabet as [r, g, b] with 0 to 255, or None if it
+    is written in a way this function does not know. Only for showing the
+    alphabet in the cockpit and on the projector, never for the test."""
+    try:
+        if isinstance(value, str):
+            text = value.strip().lstrip("#")
+            if len(text) == 6:
+                return [int(text[i:i + 2], 16) for i in (0, 2, 4)]
+            return None
+        parts = list(value)
+        if len(parts) != 3:
+            return None
+        rgb = [int(round(float(x))) for x in parts]
+        return rgb if all(0 <= x <= 255 for x in rgb) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _alphabet(symbols, labels):
+    """Names and colours of the alphabet for the server (since 0.8.0), so the
+    projector view during an acceptance test can show the real colours."""
+    colors = symbols if isinstance(symbols, dict) else {}
+    return [{"name": str(label)[:40], "color": _color(colors.get(label))}
+            for label in labels]
+
+
+def _start(role, labels, runs, team, device, settings=None, alphabet=None):
     """Asks the server for a new run, or falls back to a practice run."""
     symbols = len(labels)
     if _server() is not None:
         try:
-            state = _api("POST", "/api/runs/join", {
+            payload = {
                 "role": role, "led_uid": device.led.uid,
                 "sensor_uid": device.sensor.uid,
                 "master_uid": device.master_uid, "team": team,
-                "symbols": symbols, "runs": runs, **(settings or {})})
+                "symbols": symbols, "runs": runs, **(settings or {})}
+            if alphabet:
+                payload["alphabet"] = alphabet
+            state = _api("POST", "/api/runs/join", payload)
             run = _Run(role, labels, runs, practice=False, run_id=state["run_id"])
             note = (_paint("counts", "green") if state["counted"] else
                     _paint("does NOT count (devices not registered)", "yellow"))
