@@ -86,4 +86,22 @@ Since 0.6.0 the symbols are the names in `COLORS`, in the calibration, in the tw
 
 With both devices on one laptop, the module lights one LED and asks whether it sends or receives, then runs the test on its own. With one device on each of two laptops, the same file runs on both; each asks whether it sends or receives, and the course server brings them together and says when the next colour comes. The random sequence comes fresh from the server for every run, and the result appears in the team cockpit. Without the server, one laptop with both devices still runs a practice run that does not count. Details in `_challenge.py`.
 
+## Challenge 2: run_test with a codebook
+
+Since 0.9.0, Challenge 2 is one file too, `word.py`: the file of Challenge 1 plus a `CODEBOOK` (each character, A to Z and the space, to a list of colour names) and two functions, `send_text(text)` and `receive_text(n_chars)`. Handing over the codebook is what makes `run_test` run Challenge 2:
+
+```python
+def send_text(text):
+    ...                         # send every character as its colours from CODEBOOK
+
+def receive_text(n_chars):
+    ...                         # receive n_chars characters, return them as one text
+    return ""
+
+run_test(send_text, receive_text, calibrate, symbols=COLORS, codebook=CODEBOOK,
+         gain=GAIN, integration_time=INTEGRATION_TIME)
+```
+
+A run shows every colour of `COLORS` once for the calibration and then sends three sentences of three real words each, fresh from the course server; the receiver only learns the number of characters. The server gives each part a common start and nothing else: from the start on, the code of the team keeps time. With two laptops each laptop turns the start into its own clock, so the two starts agree to within a few hundredths of a second. When `send_text` returns, the LED goes off. The result names characters per second (characters divided by the time from the start until `send_text` returned) and bit per second (colours sent divided by the same time, times log2 of the number of colours). `sentences=1` makes a quick test; only runs with 3 sentences count. Details in `_word.py`.
+
 The module is deliberately short and commented: from Challenge 2 on it is worth looking inside. The raw Tinkerforge interface stays within reach through `led.raw` and `sensor.raw`.

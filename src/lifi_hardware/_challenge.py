@@ -438,8 +438,14 @@ def _wait(run, until, what):
 
 
 def run_test(send_symbol, receive_symbol, calibrate=None, symbols=None,
-             runs=20, team=None, gain=None, integration_time=None):
+             runs=20, team=None, gain=None, integration_time=None,
+             codebook=None, sentences=3):
     """The test for Challenge 1: how many symbols get through without a mistake?
+
+    With a ``codebook`` it is the test for Challenge 2 instead (since
+    0.9.0): then the first two arguments are ``send_text`` and
+    ``receive_text``, and ``sentences`` says how many sentences one run
+    sends (3 count for the challenge). How that works: see _word.py.
 
     ``symbols`` is your alphabet, usually ``COLORS``: its names are the
     symbols. ``send_symbol(name)`` shows the symbol with that name.
@@ -475,6 +481,11 @@ def run_test(send_symbol, receive_symbol, calibrate=None, symbols=None,
     if integration_time is not None and integration_time not in _INTEGRATION_TIMES:
         raise ValueError(f"There is no integration time of {integration_time} ms. "
                          f"Allowed: {sorted(_INTEGRATION_TIMES)}")
+    if codebook is not None:
+        from ._word import run_word_test
+        return run_word_test(send_symbol, receive_symbol, calibrate, symbols,
+                             codebook, sentences=sentences, team=team, gain=gain,
+                             integration_time=integration_time)
     labels = _labels(symbols)
     roles = _choose_roles()
     role = ("both" if roles["sender"] and roles["receiver"]
