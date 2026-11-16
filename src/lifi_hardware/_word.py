@@ -32,6 +32,11 @@ speed is the number of characters divided by the time ``send_text`` took,
 in characters per second. Next to it stands the measured symbol rate, all
 colours sent divided by the same time, and from it bits per second: the
 symbol rate times log2 of the number of colours.
+
+For a quick test in between, ``text="HELLO WORLD"`` sends your own text
+instead of the sentences of the server (a list sends several, one after the
+other). That is always a practice run with both devices on one laptop: it
+does not ask the server and does not count.
 """
 
 from __future__ import annotations
@@ -197,16 +202,25 @@ class _Heartbeat:
 # --- The run --------------------------------------------------------------------
 
 def run_word_test(send_text, receive_text, calibrate, symbols, codebook,
-                  sentences=3, team=None, gain=None, integration_time=None):
+                  sentences=3, team=None, gain=None, integration_time=None,
+                  text=None):
     """Challenge 2, called by run_test when it gets a ``codebook``."""
     labels = c._labels(symbols)
     _check_codebook(codebook, labels)
     rgb = _rgb_values(symbols, labels)
+    texts = _own_texts(text, codebook)
+    if texts:
+        sentences = len(texts)
     if not isinstance(sentences, int) or not 1 <= sentences <= 10:
         raise ValueError("sentences has to be a whole number from 1 to 10.")
     roles = c._choose_roles()
     role = ("both" if roles["sender"] and roles["receiver"]
             else "sender" if roles["sender"] else "receiver")
+    if texts and role != "both":
+        raise RuntimeError(
+            "A run with your own text needs both devices on this laptop: it is a "
+            "practice run without the course server. With two laptops, leave "
+            "text= out.")
     some_device = roles["sender"] or roles["receiver"]
 
     settings = {}
@@ -219,7 +233,7 @@ def run_word_test(send_text, receive_text, calibrate, symbols, codebook,
         settings = {"gain": sensor.gain, "integration_time": sensor.integration_time}
 
     run = _start(role, labels, sentences, team, some_device, settings,
-                 c._alphabet(symbols, labels), _codebook_id(codebook))
+                 c._alphabet(symbols, labels), _codebook_id(codebook), texts)
     run.codebook = codebook
     run.rgb = rgb
     if settings:
@@ -233,9 +247,40 @@ def run_word_test(send_text, receive_text, calibrate, symbols, codebook,
     return {**_report(run), **settings}
 
 
-def _start(role, labels, sentences, team, device, settings, alphabet, codebook_id):
+def _own_texts(text, codebook):
+    """The texts of a practice run with your own text, checked against the
+    codebook; None without text=."""
+    if text is None:
+        return None
+    texts = [text] if isinstance(text, str) else text
+    if not isinstance(texts, (list, tuple)) or not texts             or not all(isinstance(t, str) and t for t in texts):
+        raise TypeError('text has to be a text such as "HELLO WORLD", or a list '
+                        'of texts.')
+    if len(texts) > 10:
+        raise ValueError("text can hold at most 10 texts.")
+    for t in texts:
+        unknown = sorted({ch for ch in t if ch not in codebook})
+        if unknown:
+            shown = ", ".join(repr(ch) for ch in unknown)
+            hint = (" Write it in capital letters." if any(ch.islower()
+                    for ch in unknown) else "")
+            raise ValueError(f"Your CODEBOOK has no entry for {shown} in "
+                             f"{t!r}.{hint}")
+    return list(texts)
+
+
+def _start(role, labels, sentences, team, device, settings, alphabet, codebook_id,
+           texts=None):
     """Asks the server for a new run of Challenge 2, or falls back to a
-    practice run with both devices on this laptop."""
+    practice run with both devices on this laptop. With your own texts it
+    does not ask the server at all."""
+    if texts:
+        print(c._paint("Practice run with your own text: it does not count.",
+                       "yellow"))
+        run = c._Run(role, labels, sentences, practice=True, run_id="practice")
+        run.sequence = texts
+        run.total = sentences + 1
+        return run
     if c._server() is not None:
         try:
             payload = {
